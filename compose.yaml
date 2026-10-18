@@ -1,0 +1,114 @@
+name: v2c
+
+x-control: &control
+  image: v2c:local
+  build: .
+  user: '10001:10001'
+  read_only: true
+  init: true
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  tmpfs:
+    - /tmp:size=128m,mode=1777
+  env_file:
+    - path: .env
+      required: false
+  environment: &control-environment
+    V2C_DATABASE_URL: postgresql+psycopg://v2c:${V2C_POSTGRES_PASSWORD:?Set V2C_POSTGRES_PASSWORD}@postgres:5432/v2c
+    V2C_API_TOKEN: ${V2C_API_TOKEN:?Set V2C_API_TOKEN}
+    V2C_STORAGE_BACKEND: ${V2C_STORAGE_BACKEND:-s3}
+    V2C_S3_BUCKET: ${V2C_S3_BUCKET:-v2c}
+    V2C_S3_PREFIX: ${V2C_S3_PREFIX:-v2c}
+    V2C_WORK_ROOT: /data/work
+    V2C_ARTIFACT_ROOT: /data/artifacts
+  volumes:
+    - control-data:/data
+    - type: bind
+      source: ${V2C_CERTS_DIR:-./certs}
+      target: /run/v2c-certs
+      read_only: true
+      bind:
+        create_host_path: false
+  networks: [backend, outbound]
+  logging:
+    driver: json-file
+    options:
+      max-size: '10m'
+      max-file: '3'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: v2c
+      POSTGRES_DB: v2c
+      POSTGRES_PASSWORD: ${V2C_POSTGRES_PASSWORD:?Set V2C_POSTGRES_PASSWORD}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks: [backend]
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U v2c -d v2c']
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  migrate:
+    <<: *control
+    command: [alembic, upgrade, head]
+    restart: 'no'
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    <<: *control
+    command: [uvicorn, 'v2c.api:app', --host, '0.0.0.0', --port, '8000']
+    restart: unless-stopped
+    ports:
+      - '${V2C_BIND_ADDRESS:-127.0.0.1}:${V2C_PORT:-8000}:8000'
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    cpus: 1
+    mem_limit: 768m
+    pids_limit: 128
+
+  worker:
+    <<: *control
+    command: [python, -m, v2c.worker]
+    restart: unless-stopped
+    stop_grace_period: 30s
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    cpus: 2
+    mem_limit: 2g
+    pids_limit: 256
+
+  # Optional local S3 compatibility test. The image must be reviewed/built by
+  # the operator. Nothing in the control service depends on this profile.
+  minio:
+    profiles: [local-s3]
+    image: ${V2C_MINIO_IMAGE:-v2c-minio:operator-built}
+    command: [server, /data, --console-address, ':9001']
+    restart: unless-stopped
+    environment:
+      MINIO_ROOT_USER: ${V2C_MINIO_ROOT_USER:-}
+      MINIO_ROOT_PASSWORD: ${V2C_MINIO_ROOT_PASSWORD:-}
+    volumes:
+      - minio-data:/data
+    ports:
+      - '127.0.0.1:9000:9000'
+      - '127.0.0.1:9001:9001'
+    networks: [backend]
+
+volumes:
+  postgres-data:
+  control-data:
+  minio-data:
+
+networks:
+  backend:
+    internal: true
+  outbound:
