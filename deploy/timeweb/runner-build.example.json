@@ -1,0 +1,13 @@
+{
+  "source_url": "https://github.com/rtalyutin/v2c/archive/REPLACE_WITH_RELEASE_COMMIT.tar.gz",
+  "source_sha256": "REPLACE_WITH_SOURCE_ARCHIVE_SHA256",
+  "runner_settings_file": "/etc/v2c-operator/runner-settings.json",
+  "tls_server_cert_file": "/etc/v2c-operator/pki/runner.crt",
+  "tls_server_key_file": "/etc/v2c-operator/pki/runner.key",
+  "tls_client_ca_file": "/etc/v2c-operator/pki/ca.crt",
+  "runner_server_name": "runner.v2c.internal",
+  "control_cidrs": ["REPLACE_WITH_CONTROL_EGRESS_IPV4/32"],
+  "admin_cidrs": [],
+  "runner_port": 8443,
+  "bootstrap_timeout_seconds": 900
+}

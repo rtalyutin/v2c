@@ -14,6 +14,53 @@ def _int(name: str, default: int) -> int:
     return value
 
 
+# Explicit smoke/small-change preset. It never selects another provider or a
+# paid model when quota is exhausted. Account billing eligibility is not known
+# from an API key and is not claimed by this configuration.
+GROQ_FREE_PRESET = 'groq-free-gpt-oss-120b'
+MODEL_PRESETS = {
+    GROQ_FREE_PRESET: {
+        'model_base_url': 'https://api.groq.com/openai/v1',
+        'model': 'openai/gpt-oss-120b',
+        'model_api_key_env': 'GROQ_API_KEY',
+        'model_profile_version': 'groq-free-smoke-1',
+        'max_output_tokens': 1024, 'model_timeout_seconds': 60,
+        'model_max_input_bytes': 6000, 'max_response_bytes': 65536,
+    },
+}
+
+
+def _model_environment() -> dict:
+    """Resolve an explicitly selected preset; contradictory overrides fail."""
+    name = os.environ.get('V2C_MODEL_PRESET', '')
+    if name and name not in MODEL_PRESETS:
+        raise ValueError('MODEL_PRESET_UNKNOWN')
+    defaults = MODEL_PRESETS.get(name, {
+        'model_base_url': '', 'model': '', 'model_api_key_env': 'V2C_MODEL_API_KEY',
+        'model_profile_version': '1', 'max_output_tokens': 8192,
+        'model_timeout_seconds': 90, 'model_max_input_bytes': 262144, 'max_response_bytes': 1048576,
+    })
+    env_fields = {
+        'model_base_url': 'V2C_MODEL_BASE_URL', 'model': 'V2C_MODEL',
+        'model_api_key_env': 'V2C_MODEL_API_KEY_ENV', 'model_profile_version': 'V2C_MODEL_PROFILE_VERSION',
+        'max_output_tokens': 'V2C_MAX_OUTPUT_TOKENS', 'model_timeout_seconds': 'V2C_MODEL_TIMEOUT_SECONDS',
+        'model_max_input_bytes': 'V2C_MODEL_MAX_INPUT_BYTES', 'max_response_bytes': 'V2C_MAX_RESPONSE_BYTES',
+    }
+    values = {'model_preset': name}
+    for field_name, env_name in env_fields.items():
+        default = defaults[field_name]
+        if isinstance(default, int):
+            value = _int(env_name, default)
+            if name and value > default:
+                raise ValueError('MODEL_PRESET_LIMIT_EXCEEDED')
+        else:
+            value = os.environ.get(env_name) or default
+            if name and field_name in {'model_base_url', 'model', 'model_api_key_env'} and value != default:
+                raise ValueError('MODEL_PRESET_CONFLICT')
+        values[field_name] = value
+    return values
+
+
 @dataclass
 class Settings:
     database_url: str = "sqlite:///./data/v2c.db"
@@ -25,6 +72,7 @@ class Settings:
     s3_endpoint_url: str | None = None
     s3_bucket: str = "v2c"
     s3_prefix: str = "v2c"
+    model_preset: str = ""
     model_base_url: str = ""
     model: str = ""
     model_api_key_env: str = "V2C_MODEL_API_KEY"
@@ -34,6 +82,7 @@ class Settings:
     model_max_input_bytes: int = 262144
     max_response_bytes: int = 1048576
     runner_base_url: str = ""
+    runner_server_name: str | None = None
     runner_token: str = field(default="", repr=False)
     runner_ca_cert: str | None = None
     runner_client_cert: str | None = None
@@ -42,6 +91,8 @@ class Settings:
     vm_provider_token: str = field(default="", repr=False)
     lease_seconds: int = 60
     command_timeout_seconds: int = 120
+    provision_timeout_seconds: int = 600
+    provision_poll_seconds: int = 5
     run_timeout_seconds: int = 3600
     max_upload_bytes: int = 67108864
     git_allowed_hosts: tuple[str, ...] = ()
@@ -64,14 +115,9 @@ class Settings:
             storage_backend=env.get("V2C_STORAGE_BACKEND", "local"),
             s3_endpoint_url=env.get("V2C_S3_ENDPOINT_URL"),
             s3_bucket=env.get("V2C_S3_BUCKET", "v2c"), s3_prefix=env.get("V2C_S3_PREFIX", "v2c"),
-            model_base_url=env.get("V2C_MODEL_BASE_URL", ""), model=env.get("V2C_MODEL", ""),
-            model_api_key_env=env.get("V2C_MODEL_API_KEY_ENV", "V2C_MODEL_API_KEY"),
-            model_profile_version=env.get("V2C_MODEL_PROFILE_VERSION", "1"),
-            max_output_tokens=_int("V2C_MAX_OUTPUT_TOKENS", 8192),
-            model_timeout_seconds=_int("V2C_MODEL_TIMEOUT_SECONDS", 90),
-            model_max_input_bytes=_int("V2C_MODEL_MAX_INPUT_BYTES", 262144),
-            max_response_bytes=_int("V2C_MAX_RESPONSE_BYTES", 1048576),
+            **_model_environment(),
             runner_base_url=env.get("V2C_RUNNER_BASE_URL", ""), runner_token=env.get("V2C_RUNNER_TOKEN", ""),
+            runner_server_name=env.get("V2C_RUNNER_SERVER_NAME") or None,
             runner_ca_cert=env.get("V2C_RUNNER_CA_CERT"),
             runner_client_cert=env.get("V2C_RUNNER_CLIENT_CERT"),
             runner_client_key=env.get("V2C_RUNNER_CLIENT_KEY"),
@@ -79,6 +125,8 @@ class Settings:
             vm_provider_token=env.get("V2C_VM_PROVIDER_TOKEN", ""),
             lease_seconds=_int("V2C_LEASE_SECONDS", 60),
             command_timeout_seconds=_int("V2C_COMMAND_TIMEOUT_SECONDS", 120),
+            provision_timeout_seconds=_int("V2C_PROVISION_TIMEOUT_SECONDS", 600),
+            provision_poll_seconds=_int("V2C_PROVISION_POLL_SECONDS", 5),
             run_timeout_seconds=_int("V2C_RUN_TIMEOUT_SECONDS", 3600),
             max_upload_bytes=_int("V2C_MAX_UPLOAD_BYTES", 67108864),
             git_allowed_hosts=tuple(x.strip() for x in env.get("V2C_GIT_ALLOWED_HOSTS", "").split(",") if x.strip()),
@@ -112,19 +160,34 @@ def build_store(settings: Settings):
     raise ValueError("V2C_STORAGE_BACKEND must be local or s3")
 
 
-def build_pipeline(settings: Settings, engine):
-    """Wire configured ports; absent integrations remain explicit NEEDS_INPUT."""
+def build_model(settings: Settings):
+    """Build exactly the selected model profile, without a provider fallback."""
     from .adapters.model import EnvSecretResolver, ModelProfile, OpenAICompatibleModel
-    from .adapters.runner import HTTPVMProvider, MTLSConfig, RunnerClient
-    from .pipeline import Pipeline
-    model = None
+    if settings.model_preset:
+        expected = MODEL_PRESETS.get(settings.model_preset)
+        if expected is None:
+            raise ValueError('MODEL_PRESET_UNKNOWN')
+        for name in ('model_base_url', 'model', 'model_api_key_env'):
+            if getattr(settings, name) != expected[name]:
+                raise ValueError('MODEL_PRESET_CONFLICT')
+        for name in ('max_output_tokens', 'model_timeout_seconds', 'model_max_input_bytes', 'max_response_bytes'):
+            if getattr(settings, name) > expected[name]:
+                raise ValueError('MODEL_PRESET_LIMIT_EXCEEDED')
     if settings.model_base_url and settings.model:
         profile = ModelProfile(version=settings.model_profile_version, adapter_type="openai-compatible",
             endpoint=settings.model_base_url, model=settings.model,
             secret_ref="env:" + settings.model_api_key_env, capabilities=frozenset({"text", "structured"}),
             max_input_bytes=settings.model_max_input_bytes, max_output_tokens=settings.max_output_tokens,
             max_response_bytes=settings.max_response_bytes, timeout_seconds=settings.model_timeout_seconds)
-        model = OpenAICompatibleModel(profile, EnvSecretResolver())
+        return OpenAICompatibleModel(profile, EnvSecretResolver())
+    return None
+
+
+def build_pipeline(settings: Settings, engine):
+    """Wire configured ports; absent integrations remain explicit NEEDS_INPUT."""
+    from .adapters.runner import HTTPVMProvider, MTLSConfig, RunnerClient
+    from .pipeline import Pipeline
+    model = build_model(settings)
     provider = factory = None
     tls = all((settings.runner_ca_cert, settings.runner_client_cert, settings.runner_client_key))
     if settings.vm_provider_url and settings.vm_provider_token and tls and settings.runner_token:
@@ -135,6 +198,7 @@ def build_pipeline(settings: Settings, engine):
             bearer_secret=settings.vm_provider_token, **common))
         def factory(allocation):
             return RunnerClient(MTLSConfig(endpoint=allocation.runner_endpoint,
+                server_name=settings.runner_server_name,
                 bearer_secret=settings.runner_token, **common))
     return Pipeline(engine, build_store(settings), model=model, settings=settings,
                     vm_provider=provider, runner_factory=factory)

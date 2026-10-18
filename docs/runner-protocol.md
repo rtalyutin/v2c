@@ -6,6 +6,10 @@ credentials or Docker socket. Provisioning and VM destruction use a separate
 operator-supplied HTTPS gateway. No cloud vendor is assumed to implement this
 gateway protocol directly.
 
+The repository includes `v2c.timeweb_gateway`, which translates this contract
+to the verified Timeweb API profile. Deployment/template instructions are in
+[timeweb.md](timeweb.md); other clouds require their own gateway.
+
 ## Transport and authorization
 
 Both clients require HTTPS, mutual TLS (configured CA/client certificate/key),
@@ -13,6 +17,10 @@ and an `Authorization: Bearer <secret>` header. Redirects and automatic HTTP
 retries are disabled. Configure firewall restrictions outside the guest VM.
 The command bearer secret does not grant authority to provision/destroy VMs;
 the VM gateway has its own token and stays outside project containers.
+
+For a dynamic runner IP, `MTLSConfig.server_name` supplies the expected DNS
+SAN through SNI/Host while retaining CA and hostname verification. The IP
+connection does not require public DNS or disabled TLS verification.
 
 IDs match `[A-Za-z0-9_-]{1,128}`. Requests reject extra fields. A response body
 must fit the configured byte limit. The exact schemas are `PrepareRequest`,
@@ -24,7 +32,7 @@ in `src/v2c/adapters/runner.py`; the supported test-service schema is
 
 | Method and path | Input | Result |
 | --- | --- | --- |
-| `GET /health` | Authentication | Protocol/status |
+| `GET /health` | Authentication | Protocol/status, allocation ID and computed public runner profile hash |
 | `POST /v1/workspaces` | Workspace/attempt IDs, generation, base64 ZIP, archive SHA256, input manifest | Prepared workspace |
 | `PUT /v1/authorization` | Workspace ID, attempt ID, generation | Current authorization |
 | `POST /v1/commands` | Command/workspace/attempt IDs, generation, argv, cwd, timeout | HTTP 202 and stored command state |
@@ -125,7 +133,8 @@ must not be confused with control-plane connection settings.
 | `DELETE /v1/vms/{vm_id}` | VM ID | Current destruction state |
 
 An allocation has `vm_id`, `runner_endpoint` (HTTPS), and state `CREATING`,
-`READY`, `DESTROYING`, `DESTROYED` or `UNKNOWN`. The gateway must persist the
+`READY`, `DESTROYING`, `DESTROYED` or `UNKNOWN`. Optional `reason` is a bounded
+uppercase diagnostic code, never a cloud response body. The gateway must persist the
 `allocation_id` before provisioning and return the same allocation for a
 retry. It must not return `READY` before the configured runner is reachable
 with the intended identity, image and limits. A deletion response merely
@@ -134,9 +143,11 @@ accepting work must report `DESTROYING`; only confirmed destruction reports
 
 The gateway must allocate fresh VMs, enforce the host/network/disk policy,
 retain operator-only provisioning credentials, and provide authoritative
-status readback. These operations are deployment integration requirements;
-the repository supplies the HTTP client and runner service, not an invented
-implementation of a selected cloud API.
+status readback. These remain deployment integration requirements.
+`v2c.timeweb_gateway` supplies the Timeweb implementation, durable ownership
+journal and reviewed external firewall profile. Its runtime behavior still
+requires acceptance in the target account; local test ports do not establish
+actual provisioning, deletion or network isolation.
 
 ## Validation scope
 

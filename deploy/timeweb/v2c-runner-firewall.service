@@ -1,0 +1,13 @@
+[Unit]
+Description=v2c runner host firewall after trusted bootstrap
+After=network-online.target docker.service
+Before=v2c-runner.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/sbin/nft -f /etc/v2c-runner/lockdown.nft
+RemainAfterExit=true
+
+[Install]
+WantedBy=multi-user.target

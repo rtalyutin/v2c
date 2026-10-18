@@ -21,6 +21,16 @@ x-control: &control
     V2C_S3_PREFIX: ${V2C_S3_PREFIX:-v2c}
     V2C_WORK_ROOT: /data/work
     V2C_ARTIFACT_ROOT: /data/artifacts
+    # Only gateway credentials cross into control. The Timeweb cloud token and
+    # provisioning templates remain in the gateway-only private JSON mount.
+    V2C_VM_PROVIDER_URL: ${V2C_VM_PROVIDER_URL:-}
+    V2C_VM_PROVIDER_TOKEN: ${V2C_VM_PROVIDER_TOKEN:-}
+    V2C_RUNNER_SERVER_NAME: ${V2C_RUNNER_SERVER_NAME:-}
+    V2C_MODEL_PRESET: ${V2C_MODEL_PRESET:-}
+    GROQ_API_KEY: ${GROQ_API_KEY:-}
+    V2C_PROVISION_TIMEOUT_SECONDS: ${V2C_PROVISION_TIMEOUT_SECONDS:-600}
+    V2C_PROVISION_POLL_SECONDS: ${V2C_PROVISION_POLL_SECONDS:-5}
+    V2C_RUN_TIMEOUT_SECONDS: ${V2C_RUN_TIMEOUT_SECONDS:-3600}
   volumes:
     - control-data:/data
     - type: bind
@@ -86,6 +96,54 @@ services:
     mem_limit: 2g
     pids_limit: 256
 
+  # Explicit optional profile. Starting this service performs no VM allocation;
+  # lifecycle requests require an authenticated operator workflow.
+  timeweb-gateway:
+    profiles: [timeweb-gateway]
+    image: v2c:local
+    build: .
+    command:
+      - python
+      - -m
+      - v2c.timeweb_gateway
+      - --config
+      - /run/v2c-timeweb/gateway.json
+      - --tls-cert
+      - /run/v2c-timeweb/gateway.crt
+      - --tls-key
+      - /run/v2c-timeweb/gateway.key
+      - --client-ca
+      - /run/v2c-timeweb/ca.crt
+      - --port
+      - '9443'
+    user: '10001:10001'
+    read_only: true
+    init: true
+    restart: unless-stopped
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    volumes:
+      - timeweb-gateway-data:/data
+      - type: bind
+        source: ${V2C_TIMEWEB_CONFIG_DIR:-/etc/v2c-operator/gateway}
+        target: /run/v2c-timeweb
+        read_only: true
+        bind:
+          create_host_path: false
+    ports:
+      - '${V2C_TIMEWEB_GATEWAY_BIND_ADDRESS:-127.0.0.1}:${V2C_TIMEWEB_GATEWAY_PORT:-9443}:9443'
+    networks: [outbound]
+    cpus: 1
+    mem_limit: 256m
+    pids_limit: 64
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '3'
+
   # Optional local S3 compatibility test. The image must be reviewed/built by
   # the operator. Nothing in the control service depends on this profile.
   minio:
@@ -107,6 +165,7 @@ volumes:
   postgres-data:
   control-data:
   minio-data:
+  timeweb-gateway-data:
 
 networks:
   backend:

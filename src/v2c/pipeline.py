@@ -11,6 +11,7 @@ import base64
 import hashlib
 import io
 import json
+import os
 import re
 import time
 import uuid
@@ -123,6 +124,8 @@ class PatchProposal(DTO):
 @dataclass(frozen=True)
 class PipelineLimits:
     command_timeout_seconds: int = 120
+    provision_timeout_seconds: int = 600
+    provision_poll_seconds: float = 5
     run_timeout_seconds: int = 3600
     model_max_input_bytes: int = 262144
     max_patch_bytes: int = 65536
@@ -275,11 +278,128 @@ class Pipeline:
         self.runner, self.settings = runner, settings
         self.vm_provider, self.runner_factory = vm_provider, runner_factory
         self.limits = PipelineLimits(**{name: getattr(settings, name) for name in
-                                      ('command_timeout_seconds', 'run_timeout_seconds', 'model_max_input_bytes')
+                                      ('command_timeout_seconds', 'provision_timeout_seconds', 'provision_poll_seconds',
+                                       'run_timeout_seconds', 'model_max_input_bytes')
                                       if settings is not None and hasattr(settings, name)})
         self._active: dict[str, tuple[Any, Any]] = {}
 
-    def _guard(self, claim: dict) -> None:
+    def _ensure_model_ready(self) -> None:
+        """Known absent credentials cannot justify a VM allocation or API call."""
+        if self.model is None:
+            raise InputRequired('MODEL_PROFILE_REQUIRED')
+        if getattr(self.model, 'is_test', False):
+            return
+        profile = getattr(self.model, 'profile', None)
+        reference = getattr(profile, 'secret_ref', '')
+        if reference.startswith('env:'):
+            name = reference[4:]
+            if not name or not name.replace('_', '').isalnum():
+                raise InputRequired('MODEL_SECRET_REFERENCE_INVALID')
+            if not os.environ.get(name):
+                raise InputRequired('MODEL_CREDENTIAL_REQUIRED', {'key_env': name})
+
+    def _fit_model_context(self, request_id: str, task: str, context: dict, schema: dict) -> tuple[dict, dict]:
+        """Reserve real task/schema overhead; select whole optional source files.
+
+        Work/task/recipe semantics are retained. Partial source and inventory
+        coverage is explicit and fingerprinted; there is no invisible text cut.
+        """
+        serializer = getattr(self.model, 'request_body', None)
+        limit = getattr(getattr(self.model, 'profile', None), 'max_input_bytes', self.limits.model_max_input_bytes)
+        def size(value: dict) -> int:
+            request = ModelRequest(request_id=request_id, task=task, context=json_bytes(value).decode(),
+                                   response_schema=schema, required_capabilities=frozenset({'text', 'structured'}))
+            return len(serializer(request)) if serializer else len(request.context.encode())
+        original_digest = digest(context)
+        if size(context) <= limit:
+            return context, {'partial': False, 'original_context_sha256': original_digest, 'request_bytes': size(context)}
+        if size({}) > limit:
+            raise InputRequired('MODEL_BASE_CONTEXT_LIMIT', {'required_bytes': size({}), 'max_input_bytes': limit})
+        value = json.loads(json_bytes(context))
+        groups, candidates = [], []
+        required_paths = set((context.get('work') or {}).get('files', []))
+
+        def update(group: dict) -> None:
+            selected = {item['path'] for item in group['parent']['files']}
+            omitted = [path for path in group['paths'] if path not in selected]
+            group['parent']['omitted_files'] = omitted[:5]
+            group['parent']['coverage'] = {'selected_files': len(selected), 'omitted_file_count': len(omitted),
+                'omitted_bytes_known': sum(group['sizes'].get(path, 0) for path in omitted),
+                'omitted_paths_sha256': digest(omitted), 'omitted_files_sample_only': len(omitted) > 5,
+                'preselection_omitted_bytes_unknown': bool(group['unknown_sizes'])}
+
+        def compact(node: Any, path: tuple[str, ...] = ()) -> None:
+            if isinstance(node, list):
+                for item in node: compact(item, path)
+                return
+            if not isinstance(node, dict): return
+            node.pop('workspace_root', None)
+            checkpoint = node.get('checkpoint')
+            if isinstance(checkpoint, dict):
+                node['checkpoint'] = {k: checkpoint[k] for k in ('key', 'sha256', 'size', 'artifact_id') if k in checkpoint}
+            if isinstance(node.get('output'), str) and len(node['output'].encode()) > 256:
+                body = node['output']
+                node['output'] = body.encode()[-256:].decode('utf-8', errors='replace')
+                node['output_truncated'] = True
+                node['full_output_sha256'] = hashlib.sha256(body.encode()).hexdigest()
+            files = node.get('files')
+            if isinstance(files, list) and all(isinstance(item, dict) and 'path' in item for item in files):
+                source = any('text' in item for item in files) or (path and path[-1] == 'source')
+                omitted = node.get('omitted_files', [])
+                omitted = omitted if isinstance(omitted, list) else []
+                group = {'parent': node, 'source': source, 'paths': [item['path'] for item in files] + omitted,
+                         'sizes': {item['path']: len(item['text'].encode()) if 'text' in item else item.get('size', 0) for item in files},
+                         'unknown_sizes': omitted, 'records': files}
+                node['files'] = []
+                groups.append(group)
+                update(group)
+                for item in files:
+                    priority = 0 if source and item['path'] in required_paths else 2 if source else 4
+                    candidates.append((priority, 'file', group, item))
+            instructions = node.get('instructions')
+            if isinstance(instructions, dict) and all(isinstance(text, str) for text in instructions.values()):
+                node['instructions'] = {}
+                node['instruction_coverage'] = {'selected': 0, 'omitted': len(instructions),
+                    'all_instructions_sha256': digest(instructions)}
+                for name, text in instructions.items():
+                    priority = 1 if '/change/' in name or '/verify/' in name else 3
+                    candidates.append((priority, 'instruction', node, (name, text)))
+            for key, child in list(node.items()):
+                if key not in {'files', 'coverage', 'instructions', 'instruction_coverage'}:
+                    compact(child, (*path, key))
+        compact(value)
+        if size(value) > limit:
+            raise InputRequired('MODEL_REQUIRED_CONTEXT_LIMIT', {'required_bytes': size(value), 'max_input_bytes': limit})
+        # Source intake is bounded; this bound also prevents thousands of large
+        # metadata inventories causing quadratic reserialization during packing.
+        for _, kind, target, item in sorted(candidates, key=lambda candidate: candidate[0])[:128]:
+            if kind == 'file':
+                target['parent']['files'].append(item)
+                update(target)
+                if size(value) > limit:
+                    target['parent']['files'].pop()
+                    update(target)
+            else:
+                name, text = item
+                target['instructions'][name] = text
+                target['instruction_coverage']['selected'] += 1
+                target['instruction_coverage']['omitted'] -= 1
+                if size(value) > limit:
+                    del target['instructions'][name]
+                    target['instruction_coverage']['selected'] -= 1
+                    target['instruction_coverage']['omitted'] += 1
+        for group in groups:
+            if not group['source']: continue
+            selected = {item['path'] for item in group['parent']['files']}
+            missing_required = required_paths.intersection(group['paths']) - selected
+            if missing_required:
+                raise InputRequired('MODEL_REQUIRED_SOURCE_LIMIT', {'files': sorted(missing_required), 'max_input_bytes': limit})
+            if group['paths'] and not selected:
+                raise InputRequired('MODEL_SOURCE_CONTEXT_LIMIT', {'max_input_bytes': limit, 'omitted_file_count': len(group['paths'])})
+        return value, {'partial': True, 'original_context_sha256': original_digest,
+                       'sent_context_sha256': digest(value), 'request_bytes': size(value), 'max_input_bytes': limit}
+
+    def _guard(self, claim: dict, *, cleanup: bool = False) -> None:
         run = self.engine.get_run(claim['run']['id'])
         if run['cancel_requested']:
             raise RunCancelled()
@@ -287,7 +407,7 @@ class Pipeline:
         step = self.engine.get_step(claim['step']['id'])
         if step['generation'] != claim['attempt']['generation'] or step['status'] != 'RUNNING':
             raise DomainError('STALE_GENERATION')
-        if self.engine.clock() - run['created_at'] > run['limits'].get('run_timeout_seconds', self.limits.run_timeout_seconds):
+        if not cleanup and self.engine.clock() - run['created_at'] > run['limits'].get('run_timeout_seconds', self.limits.run_timeout_seconds):
             raise InputRequired('RUN_TIME_LIMIT_REACHED')
 
     @staticmethod
@@ -338,8 +458,8 @@ class Pipeline:
             raise InputRequired('CHECKPOINT_MISSING')
         return previous[-1]['result']['checkpoint']
 
-    def _operation(self, claim: dict, key: str, request: dict) -> tuple[str, dict, bool]:
-        self._guard(claim)
+    def _operation(self, claim: dict, key: str, request: dict, *, cleanup: bool = False) -> tuple[str, dict, bool]:
+        self._guard(claim, cleanup=cleanup)
         operation_id = stable_id(claim['attempt']['id'], key)
         try:
             old = self.engine.get_command(operation_id)
@@ -362,14 +482,17 @@ class Pipeline:
         return self.engine.record_command_result(operation_id, claim['attempt']['generation'], status, result)
 
     async def _model(self, claim: dict, key: str, task: str, context: dict, schema: type[DTO]) -> dict:
-        if self.model is None:
-            raise InputRequired('MODEL_PROFILE_REQUIRED')
+        self._ensure_model_ready()
         request_id = stable_id(claim['attempt']['id'], 'model_' + key)
-        context_json = json_bytes(context).decode()
-        if _SECRET.search(context_json):
+        if _SECRET.search(json_bytes(context).decode()):
             raise InputRequired('MODEL_CONTEXT_SECRET_REVIEW_REQUIRED')
-        if len(context_json.encode()) > self.limits.model_max_input_bytes:
-            raise InputRequired('MODEL_CONTEXT_LIMIT', {'stage': key})
+        try:
+            context, context_selection = self._fit_model_context(request_id, task, context, schema.model_json_schema())
+        except AdapterError as error:
+            # Pure serialization/capability rejection happens before a provider
+            # dispatch and must not leave an unresumable ACTIVE attempt.
+            raise InputRequired(error.category.value) from error
+        context_json = json_bytes(context).decode()
         profile = getattr(self.model, 'profile', None)
         profile_version = getattr(profile, 'version', 'test' if getattr(self.model, 'is_test', False) else 'unknown')
         if profile is not None and hasattr(profile, 'model_dump'):
@@ -390,7 +513,8 @@ class Pipeline:
         op_id, row, existed = self._operation(claim, 'model_' + key, {'operation': 'model', 'request_id': request_id,
                 'task_hash': hashlib.sha256(task.encode()).hexdigest(), 'context_hash': digest(context),
                 'schema_hash': digest(schema.model_json_schema()), 'profile_version': profile_version,
-                'profile_manifest': profile_manifest, 'profile_hash': digest(profile_manifest)})
+                'profile_manifest': profile_manifest, 'profile_hash': digest(profile_manifest),
+                'context_selection': context_selection})
         if row['status'] == 'SUCCEEDED':
             return schema.model_validate(row['result']['structured']).model_dump()
         if existed:
@@ -420,7 +544,8 @@ class Pipeline:
                                       'provider_request_id': error.provider_request_id, 'category': error.category.value},
                                      claim['attempt']['id'])
             self._observed(claim, op_id, 'FAILED', {'category': error.category.value, 'delivery_unknown': error.delivery_unknown})
-            if error.category in {ErrorCategory.AUTH, ErrorCategory.INVALID_CONFIG, ErrorCategory.UNSUPPORTED_CAPABILITY, ErrorCategory.CANCELLED} or error.delivery_unknown:
+            if error.category in {ErrorCategory.AUTH, ErrorCategory.INVALID_CONFIG, ErrorCategory.UNSUPPORTED_CAPABILITY,
+                                  ErrorCategory.CANCELLED, ErrorCategory.RATE_LIMIT} or error.delivery_unknown:
                 raise InputRequired(error.category.value, {'usage_unknown': error.usage_unknown}) from error
             raise StepFailure(error.category.value, retryable=error.retryable or error.category == ErrorCategory.INVALID_RESPONSE) from error
         except ValidationError as error:
@@ -444,6 +569,7 @@ class Pipeline:
         return profile
 
     async def _allocate(self, claim: dict, purpose: str) -> tuple[Any, Any]:
+        self._ensure_model_ready()
         profile = self._execution_profile(claim)
         allocation_id = stable_id(claim['attempt']['id'], purpose)
         op_id, row, existed = self._operation(claim, 'vm_' + purpose,
@@ -453,13 +579,27 @@ class Pipeline:
             allocation = VMAllocation.model_validate(row['result'])
         else:
             allocation = await self.vm_provider.create(allocation_id, purpose)
-            deadline = time.monotonic() + self.limits.command_timeout_seconds
+            # A returned CREATING allocation already owns a possible billable
+            # resource. Keep its identity durable and available to cleanup before
+            # readiness, including a cold-bootstrap timeout.
+            self._active[claim['attempt']['id']] = (allocation, None)
+            self._observed(claim, op_id, 'ACCEPTED', allocation.model_dump())
+            self._guard(claim)
+            run = self.engine.get_run(claim['run']['id'])
+            remaining_run = max(0, run['limits'].get('run_timeout_seconds', self.limits.run_timeout_seconds)
+                                - (self.engine.clock() - run['created_at']))
+            deadline = time.monotonic() + min(self.limits.provision_timeout_seconds, remaining_run)
             while allocation.state == 'CREATING' and time.monotonic() < deadline:
                 self._guard(claim)
-                await asyncio.sleep(self.limits.poll_seconds)
+                await asyncio.sleep(min(self.limits.provision_poll_seconds, max(0, deadline - time.monotonic())))
+                self._guard(claim)
                 allocation = await self.vm_provider.status(allocation.vm_id)
+                self._active[claim['attempt']['id']] = (allocation, None)
+                self._observed(claim, op_id, 'ACCEPTED', allocation.model_dump())
             if allocation.state != 'READY':
-                raise InputRequired('VM_ALLOCATION_NOT_READY')
+                raise InputRequired(allocation.reason or 'VM_ALLOCATION_NOT_READY',
+                                    {'allocation_id': allocation.vm_id, 'state': allocation.state,
+                                     'gateway_reason': allocation.reason})
             self._observed(claim, op_id, 'SUCCEEDED', allocation.model_dump())
             self._active[claim['attempt']['id']] = (allocation, None)
             # Every phase/attempt has a distinct allocation. In particular the
@@ -554,16 +694,16 @@ class Pipeline:
         run = self.engine.get_run(claim['run']['id'])
         if not run['cancel_requested']:
             op_id, row, _ = self._operation(claim, 'destroy_' + allocation.vm_id,
-                                          {'operation': 'destroy_vm', 'vm_id': allocation.vm_id})
+                                          {'operation': 'destroy_vm', 'vm_id': allocation.vm_id}, cleanup=True)
             if row['status'] == 'SUCCEEDED':
                 self._active.pop(claim['attempt']['id'], None)
                 return
         else:
             op_id = operation_id
         result = await self.vm_provider.destroy(allocation.vm_id)
-        deadline = time.monotonic() + self.limits.command_timeout_seconds
+        deadline = time.monotonic() + self.limits.provision_timeout_seconds
         while result.state != 'DESTROYED' and time.monotonic() < deadline:
-            await asyncio.sleep(self.limits.poll_seconds)
+            await asyncio.sleep(self.limits.provision_poll_seconds)
             result = await self.vm_provider.status(allocation.vm_id)
         if result.state != 'DESTROYED':
             raise InputRequired('VM_STOP_UNCONFIRMED', {'vm_id': allocation.vm_id})
@@ -606,6 +746,8 @@ class Pipeline:
         failure: Exception | None = None
         try:
             self._guard(claim)
+            if claim['step']['kind'] != 'package':
+                self._ensure_model_ready()
             result = await handler(claim)
         except (InputRequired, StepFailure, RunCancelled, AdapterError, RunnerError) as error:
             failure = error
@@ -627,7 +769,7 @@ class Pipeline:
             unresolved = [c for c in self.engine.commands_for_attempt(claim['attempt']['id'])
                           if c['status'] not in {'SUCCEEDED', 'FAILED', 'CANCELLED', 'STOPPED'}]
             if unresolved:
-                return {'status': 'RUNNING', 'reason': failure.reason, 'stop_confirmed': False}
+                return {'status': 'RUNNING', 'reason': failure.reason, 'details': failure.details, 'stop_confirmed': False}
             return self.engine.set_waiting(claim['attempt']['id'], claim['attempt']['generation'],
                                            'NEEDS_INPUT', failure.reason, failure.details)
         if failure is not None:
@@ -1027,9 +1169,9 @@ class Pipeline:
                 return False
             for vm_id in allocations:
                 value = await self.vm_provider.destroy(vm_id)
-                deadline = time.monotonic() + self.limits.command_timeout_seconds
+                deadline = time.monotonic() + self.limits.provision_timeout_seconds
                 while value.state != 'DESTROYED' and time.monotonic() < deadline:
-                    await asyncio.sleep(self.limits.poll_seconds)
+                    await asyncio.sleep(self.limits.provision_poll_seconds)
                     value = await self.vm_provider.status(vm_id)
                 if value.state != 'DESTROYED':
                     return False
@@ -1102,9 +1244,9 @@ class Pipeline:
                     self._observed(claim, command['id'], value.state, value.model_dump())
             except RunnerError:
                 stopped = await self.vm_provider.destroy(allocation.vm_id)
-                deadline = time.monotonic() + self.limits.command_timeout_seconds
+                deadline = time.monotonic() + self.limits.provision_timeout_seconds
                 while stopped.state != 'DESTROYED' and time.monotonic() < deadline:
-                    await asyncio.sleep(self.limits.poll_seconds)
+                    await asyncio.sleep(self.limits.provision_poll_seconds)
                     stopped = await self.vm_provider.status(allocation.vm_id)
                 if stopped.state != 'DESTROYED':
                     return False

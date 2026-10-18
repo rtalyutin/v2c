@@ -1,0 +1,18 @@
+{
+  "data_dir": "/var/lib/v2c-runner",
+  "bearer_secret": "REPLACE_WITH_RANDOM_RUNNER_BEARER_SECRET",
+  "image": "REPLACE_WITH_OPERATOR_IMAGE@sha256:REPLACE_WITH_64_HEX_DIGEST",
+  "cpu_limit": 1,
+  "memory_bytes": 1073741824,
+  "pids_limit": 128,
+  "tmpfs_bytes": 67108864,
+  "workspace_disk_bytes": 536870912,
+  "max_archive_bytes": 67108864,
+  "max_expanded_bytes": 268435456,
+  "max_files": 20000,
+  "max_command_seconds": 120,
+  "max_output_bytes": 65536,
+  "uid": 10001,
+  "gid": 10001,
+  "postgres_image": null
+}

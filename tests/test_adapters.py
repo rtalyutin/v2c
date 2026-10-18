@@ -143,3 +143,46 @@ def test_runner_preserves_specific_unsupported_code():
     with pytest.raises(RunnerError) as failure: asyncio.run(run())
     assert failure.value.code=='UNSUPPORTED' and not failure.value.delivery_unknown
     assert 'private operator detail' not in str(failure.value)
+
+
+def test_real_local_mtls_sni_connects_ip_with_full_hostname_validation(tmp_path):
+    """Native local TLS fixture, no provider/network provisioning is performed."""
+    import shutil
+    import ssl
+    import subprocess
+    import threading
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    openssl=shutil.which('openssl')
+    if not openssl: pytest.skip('OpenSSL unavailable for the local TLS fixture')
+    def run(*args):
+        subprocess.run([openssl,*args],cwd=tmp_path,check=True,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+    run('req','-x509','-newkey','rsa:2048','-nodes','-keyout','ca.key','-out','ca.crt','-subj','/CN=V2C Local Test CA','-days','1')
+    for role in ('server','client'):
+        run('req','-newkey','rsa:2048','-nodes','-keyout',role+'.key','-out',role+'.csr','-subj','/CN='+role)
+        extension='extendedKeyUsage='+('serverAuth' if role=='server' else 'clientAuth')+'\n'
+        if role=='server': extension+='subjectAltName=DNS:runner.v2c.internal\n'
+        (tmp_path/(role+'.ext')).write_text(extension)
+        run('x509','-req','-in',role+'.csr','-CA','ca.crt','-CAkey','ca.key','-CAcreateserial','-out',role+'.crt','-days','1','-extfile',role+'.ext')
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            content=json.dumps({'command_id':'cmd1','request_hash':'a'*64,'state':'SUCCEEDED','exit_code':0,'stop_confirmed':True}).encode()
+            self.send_response(200);self.send_header('Content-Length',str(len(content)));self.end_headers();self.wfile.write(content)
+        def log_message(self,*args): pass
+    server=ThreadingHTTPServer(('127.0.0.1',0),Handler)
+    context=ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    context.load_cert_chain(tmp_path/'server.crt',tmp_path/'server.key')
+    context.load_verify_locations(tmp_path/'ca.crt');context.verify_mode=ssl.CERT_REQUIRED
+    server.socket=context.wrap_socket(server.socket,server_side=True)
+    thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
+    config=MTLSConfig(endpoint=f'https://127.0.0.1:{server.server_port}',ca_file=str(tmp_path/'ca.crt'),cert_file=str(tmp_path/'client.crt'),
+        key_file=str(tmp_path/'client.key'),bearer_secret='local-test-secret-value',timeout_seconds=3,max_response_bytes=1000,server_name='runner.v2c.internal')
+    try:
+        assert asyncio.run(RunnerClient(config).status('cmd1')).state=='SUCCEEDED'
+        with pytest.raises(RunnerError) as failure:
+            asyncio.run(RunnerClient(config.model_copy(update={'server_name':'wrong.v2c.internal'})).status('cmd1'))
+        assert failure.value.code=='TRANSPORT_OR_TIMEOUT'
+        with pytest.raises(RunnerError):
+            # Certificate has only the DNS SAN; URL-IP validation cannot pass.
+            asyncio.run(RunnerClient(config.model_copy(update={'server_name':None})).status('cmd1'))
+    finally:
+        server.shutdown();server.server_close();thread.join(timeout=2)

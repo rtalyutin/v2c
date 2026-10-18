@@ -321,3 +321,16 @@ def test_archive_executable_boolean_roundtrip_strips_special_bits(tmp_path):
     with zipfile.ZipFile(io.BytesIO(runner.checkpoint('run1'))) as z:
         assert z.getinfo('bin/start').external_attr>>16 & 0o7777==0o755
         assert z.getinfo('src/code.py').external_attr>>16 & 0o7777==0o644
+
+
+def test_health_attests_computed_execution_profile_and_separate_allocation_identity(tmp_path):
+    config=settings(tmp_path).model_copy(update={'allocation_id':'allocation1'})
+    moved=config.model_copy(update={'data_dir':tmp_path/'elsewhere','bearer_secret':'different-safe-test-secret','docker_binary':'/another/docker','allocation_id':'allocation2'})
+    assert config.profile_sha256()==moved.profile_sha256()
+    assert config.profile_sha256()!=config.model_copy(update={'memory_bytes':config.memory_bytes+1}).profile_sha256()
+    assert config.profile_sha256()!=config.model_copy(update={'image':'another@sha256:'+'c'*64}).profile_sha256()
+    with TestClient(create_app(config,ControlledBackend())) as client:
+        response=client.get('/health',headers={'Authorization':'Bearer '+config.bearer_secret})
+        assert response.json()['allocation_id']=='allocation1'
+        assert response.json()['profile_sha256']==config.profile_sha256()
+        assert config.bearer_secret not in response.text and 'data_dir' not in response.text

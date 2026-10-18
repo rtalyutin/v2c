@@ -53,6 +53,7 @@ class RunnerSettings(BaseModel):
     uid: int = Field(ge=1)
     gid: int = Field(ge=1)
     docker_binary: str = '/usr/bin/docker'
+    allocation_id: str | None = Field(default=None, pattern=r'^[A-Za-z0-9_-]{1,128}$')
     postgres_image: str | None = None
     postgres_data_bytes: int | None = Field(default=None, gt=0)
     postgres_ready_seconds: int | None = Field(default=None, gt=0)
@@ -74,6 +75,16 @@ class RunnerSettings(BaseModel):
                 ('postgres_data_bytes', 'postgres_ready_seconds', 'postgres_uid', 'postgres_gid')):
             raise ValueError('PostgreSQL requires explicit data/readiness/nonroot UID/GID limits')
         return self
+
+    def public_profile(self) -> dict[str, Any]:
+        # Only execution semantics enter the attestation; filesystem locations,
+        # credentials and the allocation identity are checked separately.
+        return {'protocol': 'v1', **self.model_dump(mode='json', exclude={
+            'data_dir', 'bearer_secret', 'docker_binary', 'allocation_id'})}
+
+    def profile_sha256(self) -> str:
+        return hashlib.sha256(json.dumps(self.public_profile(), sort_keys=True,
+                             separators=(',', ':'), ensure_ascii=False).encode()).hexdigest()
 
     @classmethod
     def from_env(cls) -> 'RunnerSettings':
@@ -627,7 +638,9 @@ def create_app(settings: RunnerSettings, backend: ExecutionBackend | None = None
 
     dependencies = [Depends(auth)]
     @app.get('/health', dependencies=dependencies)
-    def health() -> dict[str, str]: return {'status': 'ok', 'protocol': 'v1'}
+    def health() -> dict[str, Any]:
+        return {'status': 'ok', 'protocol': 'v1', 'allocation_id': settings.allocation_id,
+                'profile_sha256': settings.profile_sha256()}
     @app.post('/v1/workspaces', dependencies=dependencies)
     def prepare(request: PrepareRequest) -> dict[str, Any]: return service.prepare(request)
     @app.put('/v1/authorization', dependencies=dependencies)

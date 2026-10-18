@@ -8,6 +8,8 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import re
+import ipaddress
 import ssl
 from typing import Any, Literal
 from urllib.parse import quote, urlsplit
@@ -101,6 +103,25 @@ class MTLSConfig(BaseModel):
     bearer_secret: str = Field(repr=False, min_length=16)
     timeout_seconds: float = Field(gt=0, allow_inf_nan=False)
     max_response_bytes: int = Field(gt=0)
+    server_name: str | None = None
+
+    @field_validator('server_name')
+    @classmethod
+    def dns_server_name(cls, value: str | None) -> str | None:
+        if value is None: return None
+        if len(value) > 253 or not re.fullmatch(r'[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?', value):
+            raise ValueError('TLS server_name must be a DNS name without scheme, port or wildcard')
+        if any(not part or len(part) > 63 or part.startswith('-') or part.endswith('-') for part in value.split('.')):
+            raise ValueError('invalid TLS DNS name')
+        try: ipaddress.ip_address(value)
+        except ValueError: return value
+        raise ValueError('TLS server_name must be an explicit DNS SAN, not an IP')
+
+    def request_extensions(self) -> dict[str, str]:
+        return {'sni_hostname': self.server_name} if self.server_name else {}
+
+    def request_headers(self) -> dict[str, str]:
+        return {'Host': self.server_name} if self.server_name else {}
 
     @field_validator('endpoint')
     @classmethod
@@ -135,7 +156,8 @@ class _HTTPSClient:
 
     async def _exchange(self, client: httpx.AsyncClient, method: str, path: str, payload: dict[str, Any] | None) -> bytes:
         async with client.stream(method, self.config.endpoint + path, json=payload,
-                                     headers={'Authorization': 'Bearer ' + self.config.bearer_secret},
+                                     headers={'Authorization': 'Bearer ' + self.config.bearer_secret, **self.config.request_headers()},
+                                     extensions=self.config.request_extensions(),
                                      timeout=self.config.timeout_seconds, follow_redirects=False) as response:
                 if response.status_code not in (200, 201, 202, 204):
                     code = {401: 'AUTH', 403: 'AUTH', 404: 'NOT_FOUND', 409: 'CONFLICT', 413: 'LIMIT', 422: 'INVALID_INPUT', 503: 'UNAVAILABLE'}.get(response.status_code, 'REMOTE_FAILURE')
@@ -216,6 +238,7 @@ class VMAllocation(BaseModel):
     vm_id: str = Field(pattern=_ID)
     runner_endpoint: str
     state: Literal['CREATING', 'READY', 'DESTROYING', 'DESTROYED', 'UNKNOWN']
+    reason: str | None = Field(default=None, pattern=r'^[A-Z0-9_]{1,128}$')
 
     @field_validator('runner_endpoint')
     @classmethod

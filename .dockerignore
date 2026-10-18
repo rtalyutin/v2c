@@ -13,6 +13,11 @@ work
 artifacts
 certs
 operator
+.private
+*.cloud-init.yaml
+*.cloud-init.json
+runner-cloud-init*.yaml
+runner-cloud-init*.json
 *.pem
 *.key
 *.crt

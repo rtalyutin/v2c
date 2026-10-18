@@ -4,12 +4,16 @@ import hashlib
 import io
 import json
 import zipfile
+from dataclasses import replace
 from types import SimpleNamespace
 
+import httpx
 import pytest
 from pydantic import ValidationError
 
-from v2c.adapters.model import ModelProfile, ModelResult, ModelUsage
+from v2c.adapters.model import (AdapterError, EnvSecretResolver, ErrorCategory, ModelProfile,
+                               ModelResult, ModelUsage, OpenAICompatibleModel)
+from v2c.config import Settings, build_model
 from v2c.adapters.runner import CommandRequest, CommandResult, VMAllocation
 from v2c.engine import DomainError, Engine
 from v2c.intake import safe_import_archive
@@ -240,6 +244,47 @@ async def test_full_candidate_requires_independent_ai_and_human(setup):
 
 
 @pytest.mark.asyncio
+async def test_free_profile_tiny_pipeline_fits_real_three_dto_request_bodies(setup, monkeypatch):
+    engine, old_pipeline, _, vms, run = setup
+    for name in ('V2C_MODEL_BASE_URL', 'V2C_MODEL', 'V2C_MODEL_API_KEY_ENV', 'V2C_MODEL_PROFILE_VERSION',
+                 'V2C_MAX_OUTPUT_TOKENS', 'V2C_MODEL_TIMEOUT_SECONDS', 'V2C_MODEL_MAX_INPUT_BYTES',
+                 'V2C_MAX_RESPONSE_BYTES'):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv('V2C_MODEL_PRESET', 'groq-free-gpt-oss-120b')
+    monkeypatch.setenv('GROQ_API_KEY', 'synthetic-http-peer-key')
+    selected = Settings.from_env()
+    sent = []
+    def provider(request):
+        payload = json.loads(request.content)
+        title = payload['response_format']['json_schema']['schema']['title']
+        sent.append((title, len(request.content)))
+        assert len(request.content) <= 6000
+        user = json.loads(payload['messages'][1]['content'])
+        task = user['task']
+        selected_context = json.loads(user['context'])
+        assert any(f['path'] == PATH and f['text'] == ORIGINAL.decode() for f in selected_context['source']['files'])
+        if task.startswith('Infer'):
+            response = RECIPE
+        elif task.startswith('Diagnose'):
+            response = PLAN
+        elif task.startswith('Implement'):
+            response = patch(ORIGINAL, REFACTORED)
+        else:
+            response = patch(REFACTORED, HELDOUT)
+        return httpx.Response(200, json={'choices': [{'message': {'content': json.dumps(response)}, 'finish_reason': 'stop'}]})
+    async with httpx.AsyncClient(transport=httpx.MockTransport(provider)) as client:
+        model = OpenAICompatibleModel(build_model(selected).profile, EnvSecretResolver(), client)
+        old_pipeline.settings.model_max_input_bytes = 6000
+        pipeline = Pipeline(engine, old_pipeline.store, model, settings=old_pipeline.settings,
+                            vm_provider=vms, runner_factory=vms.runner)
+        await advance_to_handoff(engine, pipeline, run)
+        assert {title for title, _ in sent} == {'EnvironmentRecipe', 'ProjectPlan', 'PatchProposal'}
+        assert engine.get_run(run['id'])['reason'] == 'HELD_OUT_TASK_REQUIRED'
+        assert engine.get_run(run['id'])['status'] != 'READY'
+        assert len(sent) == 3
+
+
+@pytest.mark.asyncio
 async def test_unconfigured_model_waits_without_fake_plan_or_vm(setup):
     engine, pipeline, _, vms, run = setup
     pipeline.model = None
@@ -261,6 +306,70 @@ async def test_missing_vm_provider_stops_after_static_inspection(setup):
     assert engine.get_run(run['id'])['reason'] == 'VM_PROVIDER_REQUIRED'
     assert engine.list_steps(run['id'])[1]['attempts_used'] == 1
     assert not vms.allocations
+
+
+@pytest.mark.asyncio
+async def test_rate_limit_waits_without_consuming_all_five_attempts(setup):
+    engine, pipeline, model, vms, run = setup
+    calls = []
+    async def rate_limited(request):
+        calls.append(request)
+        raise AdapterError(ErrorCategory.RATE_LIMIT, 'synthetic quota exhausted', retryable=True)
+    model.generate = rate_limited
+    await run_once(engine, pipeline, 'test-worker')
+    assert engine.get_run(run['id'])['status'] == 'NEEDS_INPUT'
+    assert engine.get_run(run['id'])['reason'] == 'RATE_LIMIT'
+    assert engine.list_steps(run['id'])[0]['attempts_used'] == 1
+    assert len(calls) == 1
+    assert not await run_once(engine, pipeline, 'test-worker')
+    assert not vms.allocations
+
+
+@pytest.mark.asyncio
+async def test_missing_key_between_steps_prevents_known_unnecessary_vm_allocation(setup, monkeypatch):
+    engine, pipeline, model, vms, run = setup
+    await run_once(engine, pipeline, 'test-worker')
+    model.is_test = False
+    model.profile = ModelProfile(version='newly-configured-profile', adapter_type='openai-compatible',
+        endpoint='https://provider.example.invalid/v1', model='configured-model', secret_ref='env:MISSING_FIXTURE_KEY',
+        capabilities=frozenset({'text', 'structured'}), max_input_bytes=6000, max_output_tokens=1024,
+        max_response_bytes=65536, timeout_seconds=60)
+    monkeypatch.delenv('MISSING_FIXTURE_KEY', raising=False)
+    await run_once(engine, pipeline, 'test-worker')
+    assert engine.get_run(run['id'])['reason'] == 'MODEL_CREDENTIAL_REQUIRED'
+    assert engine.get_run(run['id'])['status'] == 'NEEDS_INPUT'
+    assert not vms.allocations
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('deadline', ['provision', 'run'])
+async def test_cold_vm_timeout_stops_the_returned_creating_allocation_before_waiting(setup, deadline):
+    engine, pipeline, _, vms, run = setup
+    await run_once(engine, pipeline, 'test-worker')
+    original_create = vms.create
+    created = []
+    async def cold_create(allocation_id, purpose):
+        allocation = await original_create(allocation_id, purpose)
+        allocation = allocation.model_copy(update={'state': 'CREATING'})
+        vms.allocations[allocation_id] = allocation
+        created.append(allocation_id)
+        if deadline == 'run':
+            engine.clock = lambda: run['created_at'] + pipeline.limits.run_timeout_seconds + 1
+        return allocation
+    vms.create = cold_create
+    if deadline == 'provision':
+        pipeline.limits = replace(pipeline.limits, provision_timeout_seconds=0)
+    await run_once(engine, pipeline, 'test-worker', lease_seconds=10000)
+    state = engine.get_run(run['id'])
+    assert state['status'] == 'NEEDS_INPUT'
+    assert state['reason'] == ('VM_ALLOCATION_NOT_READY' if deadline == 'provision' else 'RUN_TIME_LIMIT_REACHED')
+    assert len(created) == 1
+    assert vms.destroyed == created
+    assert vms.allocations[created[0]].state == 'DESTROYED'
+    allocation = next(row for row in engine.list_commands(run_id=run['id']) if row['request'].get('operation') == 'allocate_vm')
+    assert allocation['request']['allocation_id'] == created[0]
+    assert allocation['status'] == 'STOPPED'
+    assert allocation['result']['stop_confirmed']
 
 
 @pytest.mark.asyncio
@@ -593,7 +702,7 @@ async def test_cancelled_run_waits_for_confirmed_provider_destruction(setup):
     vms.destroy = unknown
     actual_status = vms.status
     vms.status = unknown
-    pipeline.limits = pipeline.limits.__class__(command_timeout_seconds=0, run_timeout_seconds=3600)
+    pipeline.limits = pipeline.limits.__class__(command_timeout_seconds=0, provision_timeout_seconds=0, run_timeout_seconds=3600)
     assert not await pipeline.cancel_run(run['id'])
     assert engine.get_run(run['id'])['status'] != 'CANCELLED'
     vms.destroy, vms.status = actual_destroy, actual_status
