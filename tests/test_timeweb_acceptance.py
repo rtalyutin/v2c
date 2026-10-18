@@ -361,8 +361,11 @@ def test_actual_compose_env_layers_preserve_control_model_key_and_gateway_separa
         pytest.skip("Docker Compose plugin unavailable; actual env-layer configuration gate remains unexecuted")
     root = Path(__file__).resolve().parents[1]
     shutil.copyfile(root / "compose.yaml", tmp_path / "compose.yaml")
-    (tmp_path / ".env").write_text((root / ".env.example").read_text().replace(
-        "GROQ_API_KEY=", "GROQ_API_KEY=synthetic-inherited-free-key"))
+    # Compose validates required settings before it can expose model-key precedence.
+    (tmp_path / ".env").write_text((root / ".env.example").read_text()
+        .replace("V2C_API_TOKEN=\n", "V2C_API_TOKEN=synthetic-compose-api-token\n")
+        .replace("V2C_POSTGRES_PASSWORD=\n", "V2C_POSTGRES_PASSWORD=synthetic-compose-postgres-password\n")
+        .replace("GROQ_API_KEY=", "GROQ_API_KEY=synthetic-inherited-free-key"))
     shutil.copyfile(root / ".env.timeweb.example", tmp_path / ".env.timeweb")
     result = subprocess.run([docker, "compose", "--env-file", ".env", "--env-file", ".env.timeweb",
                              "--profile", "timeweb-gateway", "config", "--format", "json"],
