@@ -5,6 +5,7 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -15,9 +16,9 @@ concurrency:
 
 jobs:
   test:
-    name: Python tests and PostgreSQL schema
+    name: Maintainer checks
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 20
     services:
       postgres:
         image: postgres:16-alpine
@@ -43,14 +44,21 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: '3.12'
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '22'
       - name: Install
         run: |
           python -m pip install -r requirements.lock
           python -m pip install --no-deps .
+          npm ci
+          npx playwright install --with-deps chromium
+      - name: Check dependency locks
+        run: python scripts/lock.py --check
       - name: Migrate clean PostgreSQL
         run: alembic upgrade head
-      - name: Test
-        run: python -m pytest -q
+      - name: Check source, contracts, migrations, tests and browser
+        run: python scripts/check.py --integration --web
       - name: Check container configuration
         env:
           V2C_POSTGRES_PASSWORD: test-only-password

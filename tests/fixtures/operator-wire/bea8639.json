@@ -1,0 +1,829 @@
+{
+  "acceptance": {
+    "body": {
+      "cancel_requested": false,
+      "checkpoint_id": null,
+      "created_at": 1700000000.0,
+      "final_digest": null,
+      "id": "00000000-0000-0000-0000-000000000009",
+      "idempotency_key": "acceptance-fixture",
+      "intent_hash": "c89685a49578911826b635754ca1fd89dee9d548dec0584e32f1db67b3f5a9df",
+      "limits": {},
+      "original_reason": null,
+      "parent_run_id": null,
+      "plan_revision": 0,
+      "project_id": "00000000-0000-0000-0000-000000000001",
+      "reason": null,
+      "snapshot_id": "00000000-0000-0000-0000-000000000002",
+      "stage": null,
+      "status": "QUEUED",
+      "updated_at": 1700000000.0
+    },
+    "headers": {
+      "cache-control": "no-store",
+      "content-disposition": null,
+      "content-type": "application/json",
+      "www-authenticate": null,
+      "x-content-type-options": "nosniff"
+    },
+    "status": 200
+  },
+  "acceptance_rejected": {
+    "body": {
+      "detail": "RUN_NOT_WAITING_FOR_ACCEPTANCE"
+    },
+    "headers": {
+      "cache-control": "no-store",
+      "content-disposition": null,
+      "content-type": "application/json",
+      "www-authenticate": null,
+      "x-content-type-options": "nosniff"
+    },
+    "status": 409
+  },
+  "approve": {
+    "body": {
+      "cancel_requested": false,
+      "checkpoint_id": null,
+      "created_at": 1700000000.0,
+      "final_digest": null,
+      "id": "00000000-0000-0000-0000-000000000003",
+      "idempotency_key": "qa-idempotency",
+      "intent_hash": "82dd8712d13ab588ecc9b071cdbc65e96dcac68c4b225d984d9637adc90272f1",
+      "limits": {
+        "command_timeout_seconds": 120,
+        "execution_limits": {
+          "cpus": 1,
+          "disk_mb": 512,
+          "image": "",
+          "max_output_bytes": 65536,
+          "memory_mb": 1024,
+          "network": "none",
+          "pids": 128
+        },
+        "max_attempts_per_step": 5,
+        "run_timeout_seconds": 3600
+      },
+      "original_reason": null,
+      "parent_run_id": null,
+      "plan_revision": 1,
+      "project_id": "00000000-0000-0000-0000-000000000001",
+      "reason": null,
+      "snapshot_id": "00000000-0000-0000-0000-000000000002",
+      "stage": "inspect",
+      "status": "QUEUED",
+      "updated_at": 1700000000.0
+    },
+    "headers": {
+      "cache-control": "no-store",
+      "content-disposition": null,
+      "content-type": "application/json",
+      "www-authenticate": null,
+      "x-content-type-options": "nosniff"
+    },
+    "status": 200
+  },
+  "approve_duplicate": {
+    "body": {
+      "cancel_requested": false,
+      "checkpoint_id": null,
+      "created_at": 1700000000.0,
+      "final_digest": null,
+      "id": "00000000-0000-0000-0000-000000000003",
+      "idempotency_key": "qa-idempotency",
+      "intent_hash": "82dd8712d13ab588ecc9b071cdbc65e96dcac68c4b225d984d9637adc90272f1",
+      "limits": {
+        "command_timeout_seconds": 120,
+        "execution_limits": {
+          "cpus": 1,
+          "disk_mb": 512,
+          "image": "",
+          "max_output_bytes": 65536,
+          "memory_mb": 1024,
+          "network": "none",
+          "pids": 128
+        },
+        "max_attempts_per_step": 5,
+        "run_timeout_seconds": 3600
+      },
+      "original_reason": null,
+      "parent_run_id": null,
+      "plan_revision": 1,
+      "project_id": "00000000-0000-0000-0000-000000000001",
+      "reason": null,
+      "snapshot_id": "00000000-0000-0000-0000-000000000002",
+      "stage": "inspect",
+      "status": "QUEUED",
+      "updated_at": 1700000000.0
+    },
+    "headers": {
+      "cache-control": "no-store",
+      "content-disposition": null,
+      "content-type": "application/json",
+      "www-authenticate": null,
+      "x-content-type-options": "nosniff"
+    },
+    "status": 200
+  },
+  "artifact_foreign": {
+    "body": {
+      "detail": "NOT_FOUND"
+    },
+    "headers": {
+      "cache-control": "no-store",
+      "content-disposition": null,
+      "content-type": "application/json",
+      "www-authenticate": null,
+      "x-content-type-options": "nosniff"
+    },
+    "status": 404
+  },
+  "artifacts": {
+    "body": [
+      {
+        "created_at": 1700000000.0,
+        "id": "00000000-0000-0000-0000-000000000008",
+        "kind": "diagnostic",
+        "manifest": {
+          "nested": {
+            "value": "kept"
+          },
+          "optional": null
+        },
+        "object_key": "qa/package.zip",
+        "restore_verified": false,
+        "run_id": "00000000-0000-0000-0000-000000000003",
+        "sha256": "f0a7582af1ebb2df448177a48bea53654d9eed86379e081798d2d3fe6fc620ca",
+        "size": 26,
+        "verified": true
+      }
+    ],
+    "headers": {
+      "cache-control": "no-store",
+      "content-disposition": null,
+      "content-type": "application/json",
+      "www-authenticate": null,
+      "x-content-type-options": "nosniff"
+    },
+    "status": 200
+  },
+  "cancel": {
+    "body": {
+      "cancel_requested": true,
+      "checkpoint_id": null,
+      "created_at": 1700000000.0,
+      "final_digest": null,
+      "id": "00000000-0000-0000-0000-000000000003",
+      "idempotency_key": "qa-idempotency",
+      "intent_hash": "82dd8712d13ab588ecc9b071cdbc65e96dcac68c4b225d984d9637adc90272f1",
+      "limits": {
+        "command_timeout_seconds": 120,
+        "execution_limits": {
+          "cpus": 1,
+          "disk_mb": 512,
+          "image": "",
+          "max_output_bytes": 65536,
+          "memory_mb": 1024,
+          "network": "none",
+          "pids": 128
+        },
+        "max_attempts_per_step": 5,
+        "run_timeout_seconds": 3600
+      },
+      "original_reason": null,
+      "parent_run_id": null,
+      "plan_revision": 1,
+      "project_id": "00000000-0000-0000-0000-000000000001",
+      "reason": null,
+      "snapshot_id": "00000000-0000-0000-0000-000000000002",
+      "stage": "inspect",
+      "status": "QUEUED",
+      "updated_at": 1700000000.0
+    },
+    "headers": {
+      "cache-control": "no-store",
+      "content-disposition": null,
+      "content-type": "application/json",
+      "www-authenticate": null,
+      "x-content-type-options": "nosniff"
+    },
+    "status": 200
+  },
+  "cancelled_run": {
+    "body": {
+      "cancel_requested": true,
+      "checkpoint_id": null,
+      "created_at": 1700000000.0,
+      "final_digest": null,
+      "id": "00000000-0000-0000-0000-000000000003",
+      "idempotency_key": "qa-idempotency",
+      "intent_hash": "82dd8712d13ab588ecc9b071cdbc65e96dcac68c4b225d984d9637adc90272f1",
+      "limits": {
+        "command_timeout_seconds": 120,
+        "execution_limits": {
+          "cpus": 1,
+          "disk_mb": 512,
+          "image": "",
+          "max_output_bytes": 65536,
+          "memory_mb": 1024,
+          "network": "none",
+          "pids": 128
+        },
+        "max_attempts_per_step": 5,
+        "run_timeout_seconds": 3600
+      },
+      "original_reason": null,
+      "parent_run_id": null,
+      "plan_revision": 1,
+      "project_id": "00000000-0000-0000-0000-000000000001",
+      "reason": "CANCELLED",
+      "snapshot_id": "00000000-0000-0000-0000-000000000002",
+      "stage": "inspect",
+      "status": "CANCELLED",
+      "steps": [
+        {
+          "attempts_used": 1,
+          "generation": 1,
+          "id": "00000000-0000-0000-0000-000000000004",
+          "kind": "inspect",
+          "logical_key": "inspect",
+          "payload": {},
+          "plan_revision": 0,
+          "position": 1,
+          "result": {
+            "plan_revision": 1
+          },
+          "run_id": "00000000-0000-0000-0000-000000000003",
+          "status": "SUCCEEDED"
+        },
+        {
+          "attempts_used": 0,
+          "generation": 0,
+          "id": "00000000-0000-0000-0000-000000000007",
+          "kind": "verify",
+          "logical_key": "verify",
+          "payload": {
+            "no_transform": true,
+            "plan_revision": 1
+          },
+          "plan_revision": 1,
+          "position": 2,
+          "result": null,
+          "run_id": "00000000-0000-0000-0000-000000000003",
+          "status": "PENDING"
+        }
+      ],
+      "updated_at": 1700000000.0,
+      "usage": [],
+      "verifications": []
+    },
+    "headers": {
+      "cache-control": "no-store",
+      "content-disposition": null,
+      "content-type": "application/json",
+      "www-authenticate": null,
+      "x-content-type-options": "nosniff"
+    },
+    "status": 200
+  },
+  "decision_rejected": {
+    "body": {
+      "detail": "PLAN_VERSION_MISMATCH"
+    },
+    "headers": {
+      "cache-control": "no-store",
+      "content-disposition": null,
+      "content-type": "application/json",
+      "www-authenticate": null,
+      "x-content-type-options": "nosniff"
+    },
+    "status": 409
+  },
+  "download": {
+    "body": {
+      "base64": "UEsDBCBzeW50aGV0aWMgUUEgYXJ0aWZhY3Q="
+    },
+    "headers": {
+      "cache-control": "no-store",
+      "content-disposition": "attachment; filename=\"v2c-00000000-0000-0000-0000-000000000008.zip\"",
+      "content-type": "application/zip",
+      "www-authenticate": null,
+      "x-content-type-options": "nosniff"
+    },
+    "status": 200
+  },
+  "events_final": {
+    "body": [
+      {
+        "created_at": 1700000000.0,
+        "id": 1,
+        "kind": "RUN_CREATED",
+        "payload": {},
+        "run_id": "00000000-0000-0000-0000-000000000003"
+      },
+      {
+        "created_at": 1700000000.0,
+        "id": 2,
+        "kind": "ATTEMPT_STARTED",
+        "payload": {
+          "attempt_id": "00000000-0000-0000-0000-000000000005",
+          "generation": 1,
+          "number": 1,
+          "step_id": "00000000-0000-0000-0000-000000000004"
+        },
+        "run_id": "00000000-0000-0000-0000-000000000003"
+      },
+      {
+        "created_at": 1700000000.0,
+        "id": 3,
+        "kind": "PLAN_PUBLISHED",
+        "payload": {
+          "revision": 1
+        },
+        "run_id": "00000000-0000-0000-0000-000000000003"
+      },
+      {
+        "created_at": 1700000000.0,
+        "id": 4,
+        "kind": "WAITING",
+        "payload": {
+          "details": {
+            "plan_revision": 1
+          },
+          "reason": "PLAN_DECISION_REQUIRED",
+          "status": "AWAITING_PLAN_APPROVAL"
+        },
+        "run_id": "00000000-0000-0000-0000-000000000003"
+      },
+      {
+        "created_at": 1700000000.0,
+        "id": 5,
+        "kind": "PLAN_DECISION",
+        "payload": {
+          "actor": "operator",
+          "approved": true,
+          "revision": 1
+        },
+        "run_id": "00000000-0000-0000-0000-000000000003"
+      },
+      {
+        "created_at": 1700000000.0,
+        "id": 6,
+        "kind": "CANCEL_REQUESTED",
+        "payload": {},
+        "run_id": "00000000-0000-0000-0000-000000000003"
+      },
+      {
+        "created_at": 1700000000.0,
+        "id": 7,
+        "kind": "CANCEL_CONFIRMED",
+        "payload": {},
+        "run_id": "00000000-0000-0000-0000-000000000003"
+      },
+      {
+        "created_at": 1700000000.0,
+        "id": 8,
+        "kind": "ARTIFACT_PUBLISHED",
+        "payload": {
+          "artifact_id": "00000000-0000-0000-0000-000000000008",
+          "kind": "diagnostic",
+          "sha256": "f0a7582af1ebb2df448177a48bea53654d9eed86379e081798d2d3fe6fc620ca"
+        },
+        "run_id": "00000000-0000-0000-0000-000000000003"
+      }
+    ],
+    "headers": {
+      "cache-control": "no-store",
+      "content-disposition": null,
+      "content-type": "application/json",
+      "www-authenticate": null,
+      "x-content-type-options": "nosniff"
+    },
+    "status": 200
+  },
+  "events_initial": {
+    "body": [
+      {
+        "created_at": 1700000000.0,
+        "id": 1,
+        "kind": "RUN_CREATED",
+        "payload": {},
+        "run_id": "00000000-0000-0000-0000-000000000003"
+      }
+    ],
+    "headers": {
+      "cache-control": "no-store",
+      "content-disposition": null,
+      "content-type": "application/json",
+      "www-authenticate": null,
+      "x-content-type-options": "nosniff"
+    },
+    "status": 200
+  },
+  "health": {
+    "body": {
+      "status": "alive"
+    },
+    "headers": {
+      "cache-control": null,
+      "content-disposition": null,
+      "content-type": "application/json",
+      "www-authenticate": null,
+      "x-content-type-options": "nosniff"
+    },
+    "status": 200
+  },
+  "human_digest_rejected": {
+    "body": {
+      "detail": "FINAL_DIGEST_MISMATCH"
+    },
+    "headers": {
+      "cache-control": "no-store",
+      "content-disposition": null,
+      "content-type": "application/json",
+      "www-authenticate": null,
+      "x-content-type-options": "nosniff"
+    },
+    "status": 409
+  },
+  "human_failed": {
+    "body": {
+      "cancel_requested": false,
+      "checkpoint_id": null,
+      "created_at": 1700000000.0,
+      "final_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "id": "00000000-0000-0000-0000-000000000009",
+      "idempotency_key": "acceptance-fixture",
+      "intent_hash": "c89685a49578911826b635754ca1fd89dee9d548dec0584e32f1db67b3f5a9df",
+      "limits": {},
+      "original_reason": null,
+      "parent_run_id": null,
+      "plan_revision": 0,
+      "project_id": "00000000-0000-0000-0000-000000000001",
+      "reason": null,
+      "snapshot_id": "00000000-0000-0000-0000-000000000002",
+      "stage": null,
+      "status": "AWAITING_HANDOFF",
+      "updated_at": 1700000000.0
+    },
+    "headers": {
+      "cache-control": "no-store",
+      "content-disposition": null,
+      "content-type": "application/json",
+      "www-authenticate": null,
+      "x-content-type-options": "nosniff"
+    },
+    "status": 200
+  },
+  "new_project": {
+    "body": {
+      "created_at": 1700000000.0,
+      "id": "00000000-0000-0000-0000-000000000001",
+      "name": "QA project",
+      "owner_id": "operator"
+    },
+    "headers": {
+      "cache-control": "no-store",
+      "content-disposition": null,
+      "content-type": "application/json",
+      "www-authenticate": null,
+      "x-content-type-options": "nosniff"
+    },
+    "status": 201
+  },
+  "new_run": {
+    "body": {
+      "cancel_requested": false,
+      "checkpoint_id": null,
+      "created_at": 1700000000.0,
+      "final_digest": null,
+      "id": "00000000-0000-0000-0000-000000000003",
+      "idempotency_key": "qa-idempotency",
+      "intent_hash": "82dd8712d13ab588ecc9b071cdbc65e96dcac68c4b225d984d9637adc90272f1",
+      "limits": {
+        "command_timeout_seconds": 120,
+        "execution_limits": {
+          "cpus": 1,
+          "disk_mb": 512,
+          "image": "",
+          "max_output_bytes": 65536,
+          "memory_mb": 1024,
+          "network": "none",
+          "pids": 128
+        },
+        "max_attempts_per_step": 5,
+        "run_timeout_seconds": 3600
+      },
+      "original_reason": null,
+      "parent_run_id": null,
+      "plan_revision": 0,
+      "project_id": "00000000-0000-0000-0000-000000000001",
+      "reason": null,
+      "snapshot_id": "00000000-0000-0000-0000-000000000002",
+      "stage": null,
+      "status": "QUEUED",
+      "updated_at": 1700000000.0
+    },
+    "headers": {
+      "cache-control": "no-store",
+      "content-disposition": null,
+      "content-type": "application/json",
+      "www-authenticate": null,
+      "x-content-type-options": "nosniff"
+    },
+    "status": 201
+  },
+  "other_owner": {
+    "body": {
+      "detail": "NOT_FOUND"
+    },
+    "headers": {
+      "cache-control": "no-store",
+      "content-disposition": null,
+      "content-type": "application/json",
+      "www-authenticate": null,
+      "x-content-type-options": "nosniff"
+    },
+    "status": 404
+  },
+  "plan": {
+    "body": {
+      "plan": {
+        "findings": [],
+        "limitations": [],
+        "steps": [],
+        "summary": "Existing code preserved"
+      },
+      "revision": 1,
+      "snapshot_id": "00000000-0000-0000-0000-000000000002"
+    },
+    "headers": {
+      "cache-control": "no-store",
+      "content-disposition": null,
+      "content-type": "application/json",
+      "www-authenticate": null,
+      "x-content-type-options": "nosniff"
+    },
+    "status": 200
+  },
+  "plan_absent": {
+    "body": null,
+    "headers": {
+      "cache-control": "no-store",
+      "content-disposition": null,
+      "content-type": "application/json",
+      "www-authenticate": null,
+      "x-content-type-options": "nosniff"
+    },
+    "status": 200
+  },
+  "project": {
+    "body": {
+      "created_at": 1700000000.0,
+      "id": "00000000-0000-0000-0000-000000000001",
+      "name": "QA project",
+      "owner_id": "operator"
+    },
+    "headers": {
+      "cache-control": "no-store",
+      "content-disposition": null,
+      "content-type": "application/json",
+      "www-authenticate": null,
+      "x-content-type-options": "nosniff"
+    },
+    "status": 200
+  },
+  "projects": {
+    "body": [
+      {
+        "created_at": 1700000000.0,
+        "id": "00000000-0000-0000-0000-000000000001",
+        "name": "QA project",
+        "owner_id": "operator"
+      }
+    ],
+    "headers": {
+      "cache-control": "no-store",
+      "content-disposition": null,
+      "content-type": "application/json",
+      "www-authenticate": null,
+      "x-content-type-options": "nosniff"
+    },
+    "status": 200
+  },
+  "ready": {
+    "body": {
+      "status": "ready"
+    },
+    "headers": {
+      "cache-control": "no-store",
+      "content-disposition": null,
+      "content-type": "application/json",
+      "www-authenticate": null,
+      "x-content-type-options": "nosniff"
+    },
+    "status": 200
+  },
+  "resume_rejected": {
+    "body": {
+      "detail": "RUN_NOT_WAITING_FOR_INPUT"
+    },
+    "headers": {
+      "cache-control": "no-store",
+      "content-disposition": null,
+      "content-type": "application/json",
+      "www-authenticate": null,
+      "x-content-type-options": "nosniff"
+    },
+    "status": 409
+  },
+  "run": {
+    "body": {
+      "cancel_requested": false,
+      "checkpoint_id": null,
+      "created_at": 1700000000.0,
+      "final_digest": null,
+      "id": "00000000-0000-0000-0000-000000000003",
+      "idempotency_key": "qa-idempotency",
+      "intent_hash": "82dd8712d13ab588ecc9b071cdbc65e96dcac68c4b225d984d9637adc90272f1",
+      "limits": {
+        "command_timeout_seconds": 120,
+        "execution_limits": {
+          "cpus": 1,
+          "disk_mb": 512,
+          "image": "",
+          "max_output_bytes": 65536,
+          "memory_mb": 1024,
+          "network": "none",
+          "pids": 128
+        },
+        "max_attempts_per_step": 5,
+        "run_timeout_seconds": 3600
+      },
+      "original_reason": null,
+      "parent_run_id": null,
+      "plan_revision": 0,
+      "project_id": "00000000-0000-0000-0000-000000000001",
+      "reason": null,
+      "snapshot_id": "00000000-0000-0000-0000-000000000002",
+      "stage": null,
+      "status": "QUEUED",
+      "steps": [
+        {
+          "attempts_used": 0,
+          "generation": 0,
+          "id": "00000000-0000-0000-0000-000000000004",
+          "kind": "inspect",
+          "logical_key": "inspect",
+          "payload": {},
+          "plan_revision": 0,
+          "position": 1,
+          "result": null,
+          "run_id": "00000000-0000-0000-0000-000000000003",
+          "status": "PENDING"
+        }
+      ],
+      "updated_at": 1700000000.0,
+      "usage": [],
+      "verifications": []
+    },
+    "headers": {
+      "cache-control": "no-store",
+      "content-disposition": null,
+      "content-type": "application/json",
+      "www-authenticate": null,
+      "x-content-type-options": "nosniff"
+    },
+    "status": 200
+  },
+  "runs": {
+    "body": [
+      {
+        "cancel_requested": false,
+        "checkpoint_id": null,
+        "created_at": 1700000000.0,
+        "final_digest": null,
+        "id": "00000000-0000-0000-0000-000000000003",
+        "idempotency_key": "qa-idempotency",
+        "intent_hash": "82dd8712d13ab588ecc9b071cdbc65e96dcac68c4b225d984d9637adc90272f1",
+        "limits": {
+          "command_timeout_seconds": 120,
+          "execution_limits": {
+            "cpus": 1,
+            "disk_mb": 512,
+            "image": "",
+            "max_output_bytes": 65536,
+            "memory_mb": 1024,
+            "network": "none",
+            "pids": 128
+          },
+          "max_attempts_per_step": 5,
+          "run_timeout_seconds": 3600
+        },
+        "original_reason": null,
+        "parent_run_id": null,
+        "plan_revision": 0,
+        "project_id": "00000000-0000-0000-0000-000000000001",
+        "reason": null,
+        "snapshot_id": "00000000-0000-0000-0000-000000000002",
+        "stage": null,
+        "status": "QUEUED",
+        "updated_at": 1700000000.0
+      }
+    ],
+    "headers": {
+      "cache-control": "no-store",
+      "content-disposition": null,
+      "content-type": "application/json",
+      "www-authenticate": null,
+      "x-content-type-options": "nosniff"
+    },
+    "status": 200
+  },
+  "same_run": {
+    "body": {
+      "cancel_requested": false,
+      "checkpoint_id": null,
+      "created_at": 1700000000.0,
+      "final_digest": null,
+      "id": "00000000-0000-0000-0000-000000000003",
+      "idempotency_key": "qa-idempotency",
+      "intent_hash": "82dd8712d13ab588ecc9b071cdbc65e96dcac68c4b225d984d9637adc90272f1",
+      "limits": {
+        "command_timeout_seconds": 120,
+        "execution_limits": {
+          "cpus": 1,
+          "disk_mb": 512,
+          "image": "",
+          "max_output_bytes": 65536,
+          "memory_mb": 1024,
+          "network": "none",
+          "pids": 128
+        },
+        "max_attempts_per_step": 5,
+        "run_timeout_seconds": 3600
+      },
+      "original_reason": null,
+      "parent_run_id": null,
+      "plan_revision": 0,
+      "project_id": "00000000-0000-0000-0000-000000000001",
+      "reason": null,
+      "snapshot_id": "00000000-0000-0000-0000-000000000002",
+      "stage": null,
+      "status": "QUEUED",
+      "updated_at": 1700000000.0
+    },
+    "headers": {
+      "cache-control": "no-store",
+      "content-disposition": null,
+      "content-type": "application/json",
+      "www-authenticate": null,
+      "x-content-type-options": "nosniff"
+    },
+    "status": 201
+  },
+  "snapshots": {
+    "body": [
+      {
+        "artifact_id": null,
+        "created_at": 1700000000.0,
+        "digest": "81b2b34d11c404383da147c5461455bad45afdb2bbbc26881522d95ea22aab70",
+        "id": "00000000-0000-0000-0000-000000000002",
+        "manifest": {
+          "facts": {
+            "value": "kept"
+          },
+          "optional": null,
+          "repositories": [
+            {
+              "name": "main",
+              "revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            }
+          ]
+        },
+        "project_id": "00000000-0000-0000-0000-000000000001"
+      }
+    ],
+    "headers": {
+      "cache-control": "no-store",
+      "content-disposition": null,
+      "content-type": "application/json",
+      "www-authenticate": null,
+      "x-content-type-options": "nosniff"
+    },
+    "status": 200
+  },
+  "unauthorized": {
+    "body": {
+      "detail": "UNAUTHORIZED"
+    },
+    "headers": {
+      "cache-control": "no-store",
+      "content-disposition": null,
+      "content-type": "application/json",
+      "www-authenticate": "Bearer",
+      "x-content-type-options": "nosniff"
+    },
+    "status": 401
+  }
+}

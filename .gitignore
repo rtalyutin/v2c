@@ -28,4 +28,10 @@ runner-cloud-init*.json
 *.pem
 *.key
 *.crt
+node_modules/
+test-results/
+playwright-report/
+.mypy_cache/
+.coverage
+coverage.xml
 

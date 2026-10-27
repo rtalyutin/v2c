@@ -13,8 +13,8 @@ RUN apt-get update \
     && mkdir -p /data/work /data/artifacts \
     && chown -R v2c:v2c /data
 
-COPY requirements.lock ./
-RUN python -m pip install --no-cache-dir -r requirements.lock
+COPY requirements-runtime.lock ./
+RUN python -m pip install --no-cache-dir -r requirements-runtime.lock
 COPY pyproject.toml README.md alembic.ini ./
 COPY src ./src
 COPY migrations ./migrations

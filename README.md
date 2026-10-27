@@ -113,4 +113,21 @@ python -m pytest -q
 
 ## Структура
 
-`engine.py` владеет состояниями и транзакциями; `pipeline.py` связывает этапы; `adapters/` содержит внешние порты; `runner_service.py` исполняется в выделенной VM; `intake.py`, `storage.py`, `delivery.py` владеют входом, объектами и поставкой. `api.py` и `web/` — управление. Это один модульный backend и отдельный процесс worker.
+`engine.py` координирует переходы с одной транзакционной границей;
+`workflow/` содержит чистые правила, `persistence/` — владельцев хранения.
+`pipeline.py` связывает этапы через отдельные операции `orchestration/`;
+`contracts/` описывает явные интерфейсы, `application/` — сценарии импорта и
+передачи. `adapters/` подключает внешние службы. `runner/` и
+`providers/timeweb/` разделяют API, журналы и исполнение внутри прежних процессов;
+старые модульные точки запуска сохранены. `intake.py`, `storage.py`,
+`delivery.py` владеют входом, объектами и поставкой. Панель разделена на
+HTTP-клиент, состояние, polling и рендер без смены дизайна.
+
+Для разработки: [CONTRIBUTING](CONTRIBUTING.md), [архитектура](docs/architecture.md),
+[где менять поведение](docs/change-guide.md), [переходы и восстановление](docs/workflow.md).
+Одна команда проверки: `python scripts/check.py`; полный профиль CI:
+`python scripts/check.py --integration --web`. Production-образ устанавливает
+`requirements-runtime.lock`, инструменты разработчика — `requirements.lock`.
+OpenAPI хранится как [генерируемый контракт](docs/contracts/operator-openapi.json).
+Результат [проверки передачи человеку](docs/maintenance/human-acceptance.md)
+фиксируется отдельно от автоматических тестов.

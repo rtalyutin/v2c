@@ -1,77 +1,64 @@
 """Closed operator API. Project code is never executed by this process."""
+
 from __future__ import annotations
 
-import asyncio
 import hashlib
 import hmac
-import json
 import re
-import tempfile
-import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Annotated, Literal
+from typing import Annotated, Any
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, Response
-from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictStr, ValidationError
 from sqlalchemy import text
 
+from .application.handoff import record_human_handoff
+from .application.imports import ImportRejected, import_snapshot
 from .config import Settings, build_store
+from .contracts.operator import (
+    Acceptance,
+    ArtifactResponse,
+    Decision,
+    ErrorResponse,
+    EventResponse,
+    HealthResponse,
+    HumanHandoff,
+    NewProject,
+    NewRun,
+    PlanResponse,
+    ProjectResponse,
+    ReadinessResponse,
+    RepositoryImport,
+    RunDetailResponse,
+    RunResponse,
+    SnapshotResponse,
+    UnreadyResponse,
+)
+from .contracts.operator import (
+    AcceptanceCheck as AcceptanceCheck,
+)
+from .contracts.operator import (
+    Body as Body,
+)
+from .contracts.operator import (
+    Repository as Repository,
+)
 from .engine import DomainError, Engine
 
-
-class Body(BaseModel):
-    model_config = ConfigDict(extra="forbid", strict=True)
-
-
-class NewProject(Body):
-    name: StrictStr = Field(min_length=1, max_length=200)
-
-
-class NewRun(Body):
-    snapshot_id: StrictStr = Field(min_length=1, max_length=100)
-    idempotency_key: StrictStr = Field(min_length=1, max_length=200)
-    parent_run_id: StrictStr | None = None
-
-
-class Decision(Body):
-    snapshot_id: StrictStr
-    plan_revision: int = Field(ge=1)
-    approved: StrictBool
-
-
-class AcceptanceCheck(Body):
-    argv: list[StrictStr] = Field(min_length=1, max_length=100)
-    cwd: StrictStr = "."
-    timeout_seconds: int = Field(default=120, ge=1, le=600)
-
-
-class Acceptance(Body):
-    task: StrictStr = Field(min_length=1, max_length=20000)
-    checks: list[AcceptanceCheck] = Field(min_length=1, max_length=20)
-    allowed_new_files: list[StrictStr] = Field(default_factory=list, max_length=100)
-
-
-class HumanHandoff(Body):
-    final_digest: StrictStr = Field(pattern=r"^[a-f0-9]{64}$")
-    passed: StrictBool
-    evidence: StrictStr = Field(min_length=10, max_length=20000)
-
-
-class Repository(Body):
-    name: StrictStr = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,79}$")
-    url: StrictStr = Field(max_length=2048)
-    revision: StrictStr = Field(pattern=r"^[a-fA-F0-9]{40}$")
-    secret_ref: StrictStr | None = None
-
-
-class RepositoryImport(Body):
-    repositories: list[Repository] = Field(min_length=1, max_length=20)
-
-
-SENSITIVE_KEYS = {"workspace_root", "root", "local_path", "secret", "api_key", "token", "runner_token", "api_token"}
-SECRET_PATTERN = re.compile(r"(?:sk-[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9]{20,}|AKIA[A-Z0-9]{16})")
+SENSITIVE_KEYS = {
+    "workspace_root",
+    "root",
+    "local_path",
+    "secret",
+    "api_key",
+    "token",
+    "runner_token",
+    "api_token",
+}
+SECRET_PATTERN = re.compile(
+    r"(?:sk-[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9]{20,}|AKIA[A-Z0-9]{16})"
+)
 
 
 def public(value):
@@ -84,7 +71,42 @@ def public(value):
     return value
 
 
-def create_app(settings: Settings | None = None, *, engine: Engine | None = None, store=None) -> FastAPI:
+def error_responses(*codes: int) -> dict[int | str, dict[str, Any]]:
+    """Common safe error envelope; request validation keeps its existing shape."""
+    descriptions = {
+        400: "Malformed transport metadata.",
+        401: "Missing or invalid operator token.",
+        404: "Resource not found or belongs to another operator.",
+        409: "Operation conflicts with durable state or immutable identity.",
+        413: "Source import exceeds its configured byte limit.",
+        422: "Invalid request or source import.",
+    }
+    return {code: {"model": ErrorResponse, "description": descriptions[code]} for code in codes}
+
+
+IMPORT_BODY = {
+    "requestBody": {
+        "required": True,
+        "content": {
+            "application/json": {"schema": {"$ref": "#/components/schemas/RepositoryImport"}},
+            "application/octet-stream": {"schema": {"type": "string", "format": "binary"}},
+        },
+        "description": "Pinned HTTPS repositories as JSON, or ZIP/TAR archive bytes. Upload and extraction limits apply before snapshot publication.",
+    }
+}
+
+WEB_ASSETS = {
+    "api-client.js",
+    "state.js",
+    "render.js",
+    "polling.js",
+    "panel.css",
+}
+
+
+def create_app(
+    settings: Settings | None = None, *, engine: Engine | None = None, store=None
+) -> FastAPI:
     settings = settings or Settings.from_env()
     owned_engine = engine is None
 
@@ -106,7 +128,9 @@ def create_app(settings: Settings | None = None, *, engine: Engine | None = None
     app.state.settings = settings
 
     def auth(request: Request, authorization: Annotated[str | None, Header()] = None) -> str:
-        supplied = authorization[7:] if authorization and authorization.startswith("Bearer ") else ""
+        supplied = (
+            authorization[7:] if authorization and authorization.startswith("Bearer ") else ""
+        )
         for owner, token in request.app.state.tokens.items():
             if hmac.compare_digest(supplied, token):
                 return owner
@@ -134,11 +158,15 @@ def create_app(settings: Settings | None = None, *, engine: Engine | None = None
             status = 422
         return JSONResponse({"detail": code}, status_code=status)
 
-    @app.get("/healthz")
+    @app.get("/healthz", response_model=HealthResponse)
     def health():
         return {"status": "alive"}
 
-    @app.get("/readyz")
+    @app.get(
+        "/readyz",
+        response_model=ReadinessResponse,
+        responses={503: {"model": UnreadyResponse, "description": "Database schema is not ready."}},
+    )
     def ready(e: Engine = Depends(eng)):
         try:
             with e.db.connect() as conn:
@@ -153,28 +181,63 @@ def create_app(settings: Settings | None = None, *, engine: Engine | None = None
 
     @app.get("/panel.js", include_in_schema=False)
     def panel_script():
-        return FileResponse(Path(__file__).parent / "web" / "panel.js", media_type="application/javascript", headers={"Cache-Control": "no-store"})
+        return FileResponse(
+            Path(__file__).parent / "web" / "panel.js",
+            media_type="application/javascript",
+            headers={"Cache-Control": "no-store"},
+        )
 
-    @app.get("/projects")
+    @app.get("/web/{filename}", include_in_schema=False)
+    def panel_asset(filename: str):
+        if filename not in WEB_ASSETS:
+            raise HTTPException(404, "NOT_FOUND")
+        media_type = "text/css" if filename.endswith(".css") else "application/javascript"
+        return FileResponse(
+            Path(__file__).parent / "web" / filename,
+            media_type=media_type,
+            headers={"Cache-Control": "no-store"},
+        )
+
+    @app.get("/projects", response_model=list[ProjectResponse], responses=error_responses(401))
     def projects(owner: str = Depends(auth), e: Engine = Depends(eng)):
         return public(e.list_projects(owner))
 
-    @app.post("/projects", status_code=201)
+    @app.post(
+        "/projects",
+        status_code=201,
+        response_model=ProjectResponse,
+        responses=error_responses(401, 409, 422),
+    )
     def new_project(body: NewProject, owner: str = Depends(auth), e: Engine = Depends(eng)):
         return public(e.create_project(owner, body.name))
 
-    @app.get("/projects/{project_id}")
+    @app.get(
+        "/projects/{project_id}",
+        response_model=ProjectResponse,
+        responses=error_responses(401, 404, 422),
+    )
     def get_project(project_id: str, owner: str = Depends(auth), e: Engine = Depends(eng)):
         return public(project(e, owner, project_id))
 
-    @app.get("/projects/{project_id}/snapshots")
+    @app.get(
+        "/projects/{project_id}/snapshots",
+        response_model=list[SnapshotResponse],
+        responses=error_responses(401, 404, 422),
+    )
     def snapshots(project_id: str, owner: str = Depends(auth), e: Engine = Depends(eng)):
         project(e, owner, project_id)
         return public(e.list_snapshots(project_id))
 
-    @app.post("/projects/{project_id}/imports", status_code=201)
-    async def imports(project_id: str, request: Request, owner: str = Depends(auth), e: Engine = Depends(eng)):
-        from .intake import safe_import_archive, import_repositories, RepositoryInput, HTTPSGitFetcher
+    @app.post(
+        "/projects/{project_id}/imports",
+        status_code=201,
+        response_model=SnapshotResponse,
+        responses=error_responses(400, 401, 404, 409, 413, 422),
+        openapi_extra=IMPORT_BODY,
+    )
+    async def imports(
+        project_id: str, request: Request, owner: str = Depends(auth), e: Engine = Depends(eng)
+    ):
         project(e, owner, project_id)
         length = request.headers.get("content-length")
         if length:
@@ -182,98 +245,127 @@ def create_app(settings: Settings | None = None, *, engine: Engine | None = None
                 if int(length) < 0 or int(length) > settings.max_upload_bytes:
                     raise HTTPException(413, "IMPORT_TOO_LARGE")
             except ValueError:
-                raise HTTPException(400, "INVALID_CONTENT_LENGTH")
-        directory = settings.work_root / project_id / "imports" / str(uuid.uuid4())
-        directory.parent.mkdir(parents=True, exist_ok=True)
-        received = 0
-        with tempfile.NamedTemporaryFile(dir=directory.parent, suffix=".upload") as incoming:
-            async for chunk in request.stream():
-                received += len(chunk)
-                if received > settings.max_upload_bytes:
-                    raise HTTPException(413, "IMPORT_TOO_LARGE")
-                incoming.write(chunk)
-            incoming.flush()
-            try:
-                if request.headers.get("content-type", "").split(";")[0] == "application/json":
-                    data = RepositoryImport.model_validate_json(Path(incoming.name).read_bytes())
-                    repos = [RepositoryInput(**r.model_dump()) for r in data.repositories]
-                    from .adapters.model import EnvSecretResolver
-                    fetcher = HTTPSGitFetcher(settings.git_allowed_hosts, EnvSecretResolver())
-                    imported = await asyncio.to_thread(import_repositories, repos, directory, project_id=project_id, fetcher=fetcher)
-                else:
-                    imported = await asyncio.to_thread(safe_import_archive, Path(incoming.name), directory, project_id=project_id)
-            except (ValueError, ValidationError) as exc:
-                # Never reflect archive entries, command lines or credential-bearing input.
-                raise HTTPException(422, "INVALID_IMPORT") from exc
-        manifest = dict(imported.manifest)
-        manifest["workspace_root"] = str(imported.root.resolve())
-        from .intake import snapshot_archive_bytes, source_git_bundles
-        archive = await asyncio.to_thread(snapshot_archive_bytes, imported)
-        key = f"snapshots/{project_id}/{imported.snapshot_id}.zip"
-        ref = await asyncio.to_thread(request.app.state.store.put_bytes, key, archive)
-        manifest["archive_key"] = ref.key
-        manifest["archive_sha256"] = ref.sha256
-        manifest["archive_size"] = ref.size
-        git_bundles = await asyncio.to_thread(source_git_bundles, imported)
-        manifest["source_git_bundles"] = {}
-        for name, data in git_bundles.items():
-            bundle_ref = await asyncio.to_thread(request.app.state.store.put_bytes,
-                f"snapshots/{project_id}/{imported.snapshot_id}/{name}.bundle", data)
-            manifest["source_git_bundles"][name] = {"key": bundle_ref.key, "sha256": bundle_ref.sha256, "size": bundle_ref.size}
-        # Only a completely stored, hashed object may acquire its DB pointer.
-        snapshot = e.create_snapshot(project_id, manifest)
+                raise HTTPException(400, "INVALID_CONTENT_LENGTH") from None
+        try:
+            snapshot = await import_snapshot(
+                e,
+                request.app.state.store,
+                settings,
+                project_id,
+                request.stream(),
+                repositories_json=request.headers.get("content-type", "").split(";")[0]
+                == "application/json",
+            )
+        except ImportRejected as error:
+            raise HTTPException(error.status_code, error.code) from error
         return public(snapshot)
 
-    @app.get("/projects/{project_id}/runs")
+    @app.get(
+        "/projects/{project_id}/runs",
+        response_model=list[RunResponse],
+        responses=error_responses(401, 404, 422),
+    )
     def runs(project_id: str, owner: str = Depends(auth), e: Engine = Depends(eng)):
         project(e, owner, project_id)
         return public(e.list_runs(project_id))
 
-    @app.post("/projects/{project_id}/runs", status_code=201)
-    def new_run(project_id: str, body: NewRun, owner: str = Depends(auth), e: Engine = Depends(eng)):
+    @app.post(
+        "/projects/{project_id}/runs",
+        status_code=201,
+        response_model=RunResponse,
+        responses=error_responses(401, 404, 409, 422),
+    )
+    def new_run(
+        project_id: str, body: NewRun, owner: str = Depends(auth), e: Engine = Depends(eng)
+    ):
         project(e, owner, project_id)
-        limits = {"max_attempts_per_step": 5, "run_timeout_seconds": settings.run_timeout_seconds,
-                  "command_timeout_seconds": settings.command_timeout_seconds,
-                  "execution_limits": settings.execution_limits}
+        limits = {
+            "max_attempts_per_step": 5,
+            "run_timeout_seconds": settings.run_timeout_seconds,
+            "command_timeout_seconds": settings.command_timeout_seconds,
+            "execution_limits": settings.execution_limits,
+        }
         if settings.model_base_url and settings.model:
             limits["model_profile_version"] = settings.model_profile_version
-        return public(e.create_run(project_id, body.snapshot_id, body.idempotency_key, limits, body.parent_run_id))
+        return public(
+            e.create_run(
+                project_id, body.snapshot_id, body.idempotency_key, limits, body.parent_run_id
+            )
+        )
 
-    @app.get("/runs/{run_id}")
+    @app.get(
+        "/runs/{run_id}", response_model=RunDetailResponse, responses=error_responses(401, 404, 422)
+    )
     def get_run(run_id: str, owner: str = Depends(auth), e: Engine = Depends(eng)):
         r = run(e, owner, run_id)
-        return public({**r, "steps": e.list_steps(run_id), "usage": e.usage(run_id),
-                       "verifications": e.verifications(run_id)})
+        return public(
+            {
+                **r,
+                "steps": e.list_steps(run_id),
+                "usage": e.usage(run_id),
+                "verifications": e.verifications(run_id),
+            }
+        )
 
-    @app.get("/runs/{run_id}/events")
+    @app.get(
+        "/runs/{run_id}/events",
+        response_model=list[EventResponse],
+        responses=error_responses(401, 404, 422),
+    )
     def events(run_id: str, owner: str = Depends(auth), e: Engine = Depends(eng)):
         run(e, owner, run_id)
         return public(e.events(run_id))
 
-    @app.get("/runs/{run_id}/plan")
+    @app.get(
+        "/runs/{run_id}/plan",
+        response_model=PlanResponse | None,
+        responses=error_responses(401, 404, 422),
+    )
     def plan(run_id: str, owner: str = Depends(auth), e: Engine = Depends(eng)):
         run(e, owner, run_id)
         return public(e.get_plan(run_id))
 
-    @app.post("/runs/{run_id}/decisions")
+    @app.post(
+        "/runs/{run_id}/decisions",
+        response_model=RunResponse,
+        responses=error_responses(401, 404, 409, 422),
+    )
     def decide(run_id: str, body: Decision, owner: str = Depends(auth), e: Engine = Depends(eng)):
         r = run(e, owner, run_id)
-        return public(e.decide_plan(run_id, r["project_id"], body.snapshot_id, body.plan_revision, body.approved, owner))
+        return public(
+            e.decide_plan(
+                run_id, r["project_id"], body.snapshot_id, body.plan_revision, body.approved, owner
+            )
+        )
 
-    @app.post("/runs/{run_id}/cancel")
+    @app.post(
+        "/runs/{run_id}/cancel",
+        response_model=RunResponse,
+        responses=error_responses(401, 404, 409, 422),
+    )
     def cancel(run_id: str, owner: str = Depends(auth), e: Engine = Depends(eng)):
         run(e, owner, run_id)
         return public(e.request_cancel(run_id))
 
-    @app.post("/runs/{run_id}/resume")
+    @app.post(
+        "/runs/{run_id}/resume",
+        response_model=RunResponse,
+        responses=error_responses(401, 404, 409, 422),
+    )
     def resume(run_id: str, owner: str = Depends(auth), e: Engine = Depends(eng)):
         r = run(e, owner, run_id)
         if r["status"] != "NEEDS_INPUT":
             raise HTTPException(409, "RUN_NOT_WAITING_FOR_INPUT")
         return public(e.resume_run(run_id))
 
-    @app.post("/runs/{run_id}/acceptance")
-    def acceptance(run_id: str, body: Acceptance, owner: str = Depends(auth), e: Engine = Depends(eng)):
+    @app.post(
+        "/runs/{run_id}/acceptance",
+        response_model=RunResponse,
+        responses=error_responses(401, 404, 409, 422),
+    )
+    def acceptance(
+        run_id: str, body: Acceptance, owner: str = Depends(auth), e: Engine = Depends(eng)
+    ):
         r = run(e, owner, run_id)
         if r["status"] not in {"NEEDS_INPUT", "AWAITING_HANDOFF"}:
             raise HTTPException(409, "RUN_NOT_WAITING_FOR_ACCEPTANCE")
@@ -282,31 +374,53 @@ def create_app(settings: Settings | None = None, *, engine: Engine | None = None
         if target is None:
             raise HTTPException(409, "CANDIDATE_NOT_AVAILABLE")
         payload = body.model_dump()
-        payload["checks"] = [{"id": f"acceptance_{i + 1}", **check} for i, check in enumerate(payload["checks"])]
+        payload["checks"] = [
+            {"id": f"acceptance_{i + 1}", **check} for i, check in enumerate(payload["checks"])
+        ]
         return public(e.supply_input(run_id, target["id"], payload))
 
-    @app.post("/runs/{run_id}/handoff")
-    def handoff(run_id: str, body: HumanHandoff, request: Request, owner: str = Depends(auth), e: Engine = Depends(eng)):
-        r = run(e, owner, run_id)
-        if r["status"] not in {"AWAITING_HANDOFF", "NEEDS_INPUT"}:
-            raise HTTPException(409, "RUN_NOT_WAITING_FOR_HANDOFF")
-        if r.get("final_digest") != body.final_digest:
-            raise HTTPException(409, "FINAL_DIGEST_MISMATCH")
-        e.record_verification(run_id, "human_handoff", body.passed,
-                              {"actor": owner, "notes": body.evidence}, body.final_digest)
-        if not body.passed:
-            return public(e.get_run(run_id))
-        from .pipeline import Pipeline
-        Pipeline(e, request.app.state.store, settings=settings).seal_handoff_bundle(run_id, body.final_digest)
-        return public(e.complete_handoff(run_id, body.final_digest))
+    @app.post(
+        "/runs/{run_id}/handoff",
+        response_model=RunResponse,
+        responses=error_responses(401, 404, 409, 422),
+    )
+    def handoff(
+        run_id: str,
+        body: HumanHandoff,
+        request: Request,
+        owner: str = Depends(auth),
+        e: Engine = Depends(eng),
+    ):
+        run(e, owner, run_id)
+        return public(record_human_handoff(e, request.app.state.store, run_id, body, owner))
 
-    @app.get("/runs/{run_id}/artifacts")
+    @app.get(
+        "/runs/{run_id}/artifacts",
+        response_model=list[ArtifactResponse],
+        responses=error_responses(401, 404, 422),
+    )
     def artifacts(run_id: str, owner: str = Depends(auth), e: Engine = Depends(eng)):
         run(e, owner, run_id)
         return public(e.artifacts(run_id))
 
-    @app.get("/runs/{run_id}/artifacts/{artifact_id}")
-    def artifact(run_id: str, artifact_id: str, request: Request, owner: str = Depends(auth), e: Engine = Depends(eng)):
+    @app.get(
+        "/runs/{run_id}/artifacts/{artifact_id}",
+        response_class=Response,
+        responses={
+            **error_responses(401, 404, 409, 422),
+            200: {
+                "description": "Integrity-checked artifact bytes.",
+                "content": {"application/zip": {"schema": {"type": "string", "format": "binary"}}},
+            },
+        },
+    )
+    def artifact(
+        run_id: str,
+        artifact_id: str,
+        request: Request,
+        owner: str = Depends(auth),
+        e: Engine = Depends(eng),
+    ):
         run(e, owner, run_id)
         a = next((a for a in e.artifacts(run_id) if a["id"] == artifact_id), None)
         if not a:
@@ -314,20 +428,43 @@ def create_app(settings: Settings | None = None, *, engine: Engine | None = None
         data = request.app.state.store.get_bytes(a["object_key"])
         if hashlib.sha256(data).hexdigest() != a["sha256"]:
             raise HTTPException(409, "ARTIFACT_INTEGRITY_ERROR")
-        return Response(data, media_type="application/zip", headers={
-            "Content-Disposition": f'attachment; filename="v2c-{artifact_id}.zip"',
-            "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff"})
+        return Response(
+            data,
+            media_type="application/zip",
+            headers={
+                "Content-Disposition": f'attachment; filename="v2c-{artifact_id}.zip"',
+                "Cache-Control": "private, no-store",
+                "X-Content-Type-Options": "nosniff",
+            },
+        )
 
     @app.middleware("http")
     async def headers(request, call_next):
         # Operator UI has no third-party assets and never injects project HTML.
         response = await call_next(request)
         response.headers["X-Content-Type-Options"] = "nosniff"
-        response.headers["Content-Security-Policy"] = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'"
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'"
+        )
         if request.url.path not in {"/", "/panel.js", "/healthz"}:
             response.headers["Cache-Control"] = "no-store"
         return response
 
+    original_openapi = app.openapi
+
+    def operator_openapi() -> dict[str, Any]:
+        schema = original_openapi()
+        # Streaming import deliberately avoids FastAPI body buffering. Its body
+        # contract is generated from the same parser model used by the use case.
+        request_schema = RepositoryImport.model_json_schema(
+            ref_template="#/components/schemas/{model}"
+        )
+        components = schema.setdefault("components", {}).setdefault("schemas", {})
+        components.update(request_schema.pop("$defs", {}))
+        components["RepositoryImport"] = request_schema
+        return schema
+
+    app.openapi = operator_openapi
     return app
 
 

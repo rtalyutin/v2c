@@ -1,36 +1,266 @@
-'use strict';
-let token='', project=null, currentRun=null, currentPlan=null, timer=null;
-const $=id=>document.getElementById(id);
-function notice(message,error=false){$('notice').textContent=message;$('notice').className=error?'error':'';}
-async function api(path,options={}){
- const headers={Authorization:'Bearer '+token,...(options.headers||{})};
- if(options.body && typeof options.body!=='string' && !(options.body instanceof Blob)){headers['Content-Type']='application/json';options.body=JSON.stringify(options.body);}
- const response=await fetch(path,{...options,headers,cache:'no-store'});
- if(!response.ok){let body;try{body=await response.json();}catch{body={detail:'HTTP '+response.status};}throw new Error(typeof body.detail==='string'?body.detail:JSON.stringify(body.detail));}
- return response.status===204?null:response.json();
+import { createApiClient } from "./web/api-client.js";
+import { PanelState } from "./web/state.js";
+import { createPoller } from "./web/polling.js";
+import {
+  element,
+  notice,
+  renderSession,
+  renderProjects,
+  renderSelection,
+  renderProjectData,
+  renderButtons,
+  renderRun,
+  saveDownload,
+} from "./web/render.js";
+
+const client = createApiClient();
+const state = new PanelState();
+const pending = new Set();
+
+function showError(error) {
+  if (error.name !== "AbortError") notice(error.message, true);
 }
-function action(id,fn){$(id).onclick=async()=>{const button=$(id);button.disabled=true;try{await fn();}catch(e){notice(e.message,true);}finally{button.disabled=false;}};}
-function node(tag,text,cls){const el=document.createElement(tag);if(text!==undefined)el.textContent=text;if(cls)el.className=cls;return el;}
-async function projects(){const items=await api('/projects');$('projects').replaceChildren();for(const p of items){const b=node('button',p.name,'item');b.onclick=()=>selectProject(p).catch(e=>notice(e.message,true));$('projects').append(b);}}
-async function selectProject(p){project=p;currentRun=null;$('run-card').hidden=true;$('project-title').textContent=p.name;$('project-actions').hidden=false;await refreshProject();}
-async function refreshProject(){if(!project)return;const [snapshots,runs]=await Promise.all([api(`/projects/${project.id}/snapshots`),api(`/projects/${project.id}/runs`)]);$('snapshots').replaceChildren();for(const s of snapshots){const option=node('option',s.id.slice(0,8)+' · '+s.digest.slice(0,12));option.value=s.id;$('snapshots').append(option);}$('runs').replaceChildren();for(const r of runs){const b=node('button',r.id.slice(0,8)+' · '+r.status,'item');b.onclick=()=>selectRun(r.id).catch(e=>notice(e.message,true));$('runs').append(b);}}
-async function selectRun(id){currentRun=await api('/runs/'+id);$('run-card').hidden=false;$('run-status').textContent=currentRun.status;$('run-reason').textContent=currentRun.reason||currentRun.last_error||'';$('step-list').replaceChildren();for(const s of currentRun.steps||[]){$('step-list').append(node('p',`${s.kind} · ${s.status} · попытки ${s.attempts_used}/5`));}
- $('usage').textContent=JSON.stringify(currentRun.usage||[],null,2);$('resume').disabled=currentRun.status!=='NEEDS_INPUT';$('cancel').disabled=['READY','FAILED','CANCELLED'].includes(currentRun.status);
- currentPlan=null;try{currentPlan=await api(`/runs/${id}/plan`);$('plan').textContent=JSON.stringify(currentPlan,null,2);}catch{$('plan').textContent='План ещё не подготовлен.';}
- $('approve').disabled=currentRun.status!=='AWAITING_PLAN_APPROVAL';$('reject').disabled=$('approve').disabled;
- const [events,artifacts]=await Promise.all([api(`/runs/${id}/events`),api(`/runs/${id}/artifacts`)]);$('events').textContent=JSON.stringify(events,null,2);$('artifacts').replaceChildren();
- for(const a of artifacts){const b=node('button',`${a.kind} · ${a.manifest?.status || 'свидетельство'} · ${a.sha256.slice(0,12)}`,'secondary');b.onclick=async()=>{try{const r=await fetch(`/runs/${id}/artifacts/${a.id}`,{headers:{Authorization:'Bearer '+token}});if(!r.ok)throw new Error('Не удалось получить пакет');const url=URL.createObjectURL(await r.blob());const link=node('a');link.href=url;link.download=`v2c-${a.id}.zip`;link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}catch(e){notice(e.message,true);}};$('artifacts').append(b);}}
-action('connect',async()=>{token=$('token').value;await projects();$('token').value='';$('login').hidden=true;$('workspace').hidden=false;notice('Подключено.');if(timer)clearInterval(timer);timer=setInterval(()=>{if(currentRun)selectRun(currentRun.id).catch(e=>notice(e.message,true));},5000);});
-action('logout',async()=>{token='';project=null;currentRun=null;clearInterval(timer);$('workspace').hidden=true;$('login').hidden=false;notice('Сеанс завершён.');});
-action('create-project',async()=>{const p=await api('/projects',{method:'POST',body:{name:$('project-name').value}});$('project-name').value='';await projects();await selectProject(p);});
-action('import',async()=>{if(!project)throw new Error('Выберите проект');const file=$('archive').files[0];if(!file)throw new Error('Выберите архив');await api(`/projects/${project.id}/imports`,{method:'POST',headers:{'Content-Type':'application/octet-stream'},body:file});notice('Снимок зафиксирован.');await refreshProject();});
-action('import-repos',async()=>{const repositories=JSON.parse($('repositories').value);await api(`/projects/${project.id}/imports`,{method:'POST',body:{repositories}});notice('Комплект репозиториев зафиксирован.');await refreshProject();});
-action('start',async()=>{if(!$('snapshots').value)throw new Error('Загрузите исходный проект');const r=await api(`/projects/${project.id}/runs`,{method:'POST',body:{snapshot_id:$('snapshots').value,idempotency_key:crypto.randomUUID()}});await refreshProject();await selectRun(r.id);});
-action('refresh',async()=>{if(currentRun)await selectRun(currentRun.id);});
-action('resume',async()=>{await api(`/runs/${currentRun.id}/resume`,{method:'POST'});await selectRun(currentRun.id);});
-action('cancel',async()=>{await api(`/runs/${currentRun.id}/cancel`,{method:'POST'});notice('Остановка запрошена. Статус изменится после подтверждения.');await selectRun(currentRun.id);});
-async function decide(approved){if(!currentPlan)throw new Error('План не подготовлен');await api(`/runs/${currentRun.id}/decisions`,{method:'POST',body:{snapshot_id:currentPlan.snapshot_id,plan_revision:currentPlan.revision,approved}});await selectRun(currentRun.id);}
-action('approve',()=>decide(true));action('reject',()=>decide(false));
-action('acceptance',async()=>{await api(`/runs/${currentRun.id}/acceptance`,{method:'POST',body:{task:$('accept-task').value,checks:JSON.parse($('accept-checks').value)}});notice('Контрольное задание принято.');await selectRun(currentRun.id);});
-async function human(passed){if(!currentRun.final_digest)throw new Error('Конечная версия ещё не подготовлена');await api(`/runs/${currentRun.id}/handoff`,{method:'POST',body:{final_digest:currentRun.final_digest,passed,evidence:$('handoff-notes').value}});await selectRun(currentRun.id);}
-action('handoff-pass',()=>human(true));action('handoff-fail',()=>human(false));
+
+// Event handlers also guard errors and button state against obsolete selections.
+function action(id, callback) {
+  element(id).onclick = async () => {
+    const scope = state.scope();
+    pending.add(id);
+    element(id).disabled = true;
+    try {
+      await callback();
+    } catch (error) {
+      if (id === "connect" || state.current(scope)) showError(error);
+    } finally {
+      pending.delete(id);
+      element(id).disabled = false;
+      renderButtons(state.run, pending);
+    }
+  };
+}
+
+async function refreshProjects() {
+  const scope = state.scope();
+  const projects = await client.json("/projects");
+  if (state.current(scope, "session")) renderProjects(projects, selectProject);
+}
+
+async function selectProject(project) {
+  state.selectProject(project);
+  renderSelection(project);
+  renderButtons(null, pending);
+  const scope = state.scope();
+  try {
+    await refreshProject();
+  } catch (error) {
+    if (state.current(scope, "project")) showError(error);
+  }
+}
+
+async function refreshProject() {
+  if (!state.project) return;
+  const scope = state.scope();
+  const id = state.project.id;
+  const read = ++state.projectRead;
+  const [snapshots, runs] = await Promise.all([
+    client.json(`/projects/${id}/snapshots`),
+    client.json(`/projects/${id}/runs`),
+  ]);
+  if (state.current(scope, "project") && read === state.projectRead) {
+    renderProjectData(snapshots, runs, selectRun);
+  }
+}
+
+async function selectRun(id) {
+  state.selectRun(id);
+  element("run-card").hidden = true;
+  renderButtons(null, pending);
+  const scope = state.scope();
+  try {
+    await refreshRun();
+  } catch (error) {
+    if (state.current(scope)) showError(error);
+  }
+}
+
+async function refreshRun() {
+  if (!state.runId) return;
+  const scope = state.scope();
+  const id = state.runId;
+  const read = ++state.runRead;
+  const [run, plan, events, artifacts] = await Promise.all([
+    client.json(`/runs/${id}`),
+    client.json(`/runs/${id}/plan`),
+    client.json(`/runs/${id}/events`),
+    client.json(`/runs/${id}/artifacts`),
+  ]);
+  if (!state.current(scope) || read !== state.runRead) return;
+  state.run = run;
+  state.plan = plan;
+  renderRun(run, plan, events, artifacts, async (artifact) => {
+    try {
+      const blob = await client.download(
+        `/runs/${id}/artifacts/${artifact.id}`,
+      );
+      if (state.current(scope)) saveDownload(blob, artifact.id);
+    } catch (error) {
+      if (state.current(scope)) showError(error);
+    }
+  });
+  renderButtons(run, pending);
+}
+
+const poller = createPoller(async () => {
+  const scope = state.scope();
+  try {
+    await refreshRun();
+  } catch (error) {
+    if (state.current(scope)) showError(error);
+  }
+}, showError);
+
+function requireProject() {
+  if (!state.project) throw new Error("Выберите проект");
+  return state.project;
+}
+
+function requireRun() {
+  if (!state.run) throw new Error("Выберите запуск");
+  return state.run;
+}
+
+async function mutateRun(operation, body, message) {
+  const run = requireRun();
+  const scope = state.scope();
+  await client.json(`/runs/${run.id}/${operation}`, { method: "POST", body });
+  if (!state.current(scope)) return;
+  if (message) notice(message);
+  await refreshRun();
+}
+
+async function importSource(body, headers, message) {
+  const project = requireProject();
+  const scope = state.scope();
+  await client.json(`/projects/${project.id}/imports`, {
+    method: "POST",
+    body,
+    headers,
+  });
+  if (!state.current(scope, "project")) return;
+  notice(message);
+  await refreshProject();
+}
+
+action("connect", async () => {
+  poller.stop();
+  state.reset();
+  client.beginSession(element("token").value);
+  const scope = state.scope();
+  try {
+    await refreshProjects();
+    if (!state.current(scope, "session")) return;
+    element("token").value = "";
+    renderSelection(null);
+    renderSession(true);
+    notice("Подключено.");
+    poller.start();
+  } catch (error) {
+    client.endSession();
+    throw error;
+  }
+});
+
+action("logout", () => {
+  poller.stop();
+  client.endSession();
+  state.reset();
+  element("token").value = "";
+  renderSelection(null);
+  renderSession(false);
+  notice("Сеанс завершён.");
+});
+
+action("create-project", async () => {
+  const scope = state.scope();
+  const project = await client.json("/projects", {
+    method: "POST",
+    body: { name: element("project-name").value },
+  });
+  if (!state.current(scope)) return;
+  element("project-name").value = "";
+  await refreshProjects();
+  if (state.current(scope)) await selectProject(project);
+});
+
+action("import", async () => {
+  const file = element("archive").files[0];
+  if (!file) throw new Error("Выберите архив");
+  await importSource(
+    file,
+    { "Content-Type": "application/octet-stream" },
+    "Снимок зафиксирован.",
+  );
+});
+action("import-repos", () =>
+  importSource(
+    { repositories: JSON.parse(element("repositories").value) },
+    undefined,
+    "Комплект репозиториев зафиксирован.",
+  ),
+);
+action("start", async () => {
+  const project = requireProject();
+  const snapshot = element("snapshots").value;
+  if (!snapshot) throw new Error("Загрузите исходный проект");
+  const scope = state.scope();
+  const run = await client.json(`/projects/${project.id}/runs`, {
+    method: "POST",
+    body: { snapshot_id: snapshot, idempotency_key: crypto.randomUUID() },
+  });
+  if (!state.current(scope)) return;
+  await refreshProject();
+  if (state.current(scope)) await selectRun(run.id);
+});
+action("refresh", refreshRun);
+action("resume", () => mutateRun("resume"));
+action("cancel", () =>
+  mutateRun(
+    "cancel",
+    undefined,
+    "Остановка запрошена. Статус изменится после подтверждения.",
+  ),
+);
+
+function decide(approved) {
+  if (!state.plan) throw new Error("План не подготовлен");
+  return mutateRun("decisions", {
+    snapshot_id: state.plan.snapshot_id,
+    plan_revision: state.plan.revision,
+    approved,
+  });
+}
+action("approve", () => decide(true));
+action("reject", () => decide(false));
+action("acceptance", () =>
+  mutateRun(
+    "acceptance",
+    {
+      task: element("accept-task").value,
+      checks: JSON.parse(element("accept-checks").value),
+    },
+    "Контрольное задание принято.",
+  ),
+);
+
+function human(passed) {
+  const run = requireRun();
+  if (!run.final_digest) throw new Error("Конечная версия ещё не подготовлена");
+  return mutateRun("handoff", {
+    final_digest: run.final_digest,
+    passed,
+    evidence: element("handoff-notes").value,
+  });
+}
+action("handoff-pass", () => human(true));
+action("handoff-fail", () => human(false));
+renderButtons(null, pending);

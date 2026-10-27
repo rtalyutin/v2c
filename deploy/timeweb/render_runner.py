@@ -1,18 +1,20 @@
 #!/usr/bin/env python3
 """Render operator-only Timeweb cloud_init; never creates cloud resources."""
+
 from __future__ import annotations
 
 import argparse
 import ipaddress
 import json
 import os
-from pathlib import Path
 import re
 import ssl
 import subprocess
+from pathlib import Path
 from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+
 from v2c.runner_service import RunnerSettings
 from v2c.timeweb_gateway import public_control_cidr
 
@@ -37,14 +39,25 @@ class BuildProfile(BaseModel):
     @classmethod
     def checked_source(cls, value: str) -> str:
         p = urlsplit(value)
-        if p.scheme != "https" or not p.hostname or p.username or p.password or p.query or p.fragment:
-            raise ValueError("source URL must be public HTTPS without credentials, query or fragment")
+        if (
+            p.scheme != "https"
+            or not p.hostname
+            or p.username
+            or p.password
+            or p.query
+            or p.fragment
+        ):
+            raise ValueError(
+                "source URL must be public HTTPS without credentials, query or fragment"
+            )
         return value
 
     @field_validator("runner_server_name")
     @classmethod
     def checked_name(cls, value: str) -> str:
-        if len(value) > 253 or not re.fullmatch(r"[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?", value):
+        if len(value) > 253 or not re.fullmatch(
+            r"[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?", value
+        ):
             raise ValueError("runner_server_name must be an operator DNS SAN")
         try:
             ipaddress.ip_address(value)
@@ -60,7 +73,8 @@ class BuildProfile(BaseModel):
 
 def firewall(profile: BuildProfile) -> str:
     ingress = "\n".join(
-        f"    ip saddr {cidr} tcp dport {profile.runner_port} accept" for cidr in profile.control_cidrs
+        f"    ip saddr {cidr} tcp dport {profile.runner_port} accept"
+        for cidr in profile.control_cidrs
     )
     admin = "\n".join(f"    ip saddr {cidr} tcp dport 22 accept" for cidr in profile.admin_cidrs)
     # Priority precedes Docker's forwarding chains. Same internal bridge traffic
@@ -96,11 +110,25 @@ def checked_tls(profile: BuildProfile) -> tuple[str, str, str]:
     context.load_cert_chain(profile.tls_server_cert_file, profile.tls_server_key_file)
     context.load_verify_locations(cafile=str(profile.tls_client_ca_file))
     result = subprocess.run(
-        ["openssl", "x509", "-in", str(profile.tls_server_cert_file), "-noout", "-ext", "subjectAltName"],
-        stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, check=False, timeout=10, text=True,
+        [
+            "openssl",
+            "x509",
+            "-in",
+            str(profile.tls_server_cert_file),
+            "-noout",
+            "-ext",
+            "subjectAltName",
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        check=False,
+        timeout=10,
+        text=True,
     )
     names = re.findall(r"(?:^|[\s,])DNS:([^,\s]+)", result.stdout)
-    if result.returncode or profile.runner_server_name.lower() not in {value.lower() for value in names}:
+    if result.returncode or profile.runner_server_name.lower() not in {
+        value.lower() for value in names
+    }:
         raise ValueError("runner certificate does not match configured DNS SAN")
     return cert, key, ca
 
@@ -117,23 +145,41 @@ def render(profile: BuildProfile) -> tuple[str, dict]:
     cert, key, ca = checked_tls(profile)
     root = Path(__file__).resolve().parent
     bootstrap = root.joinpath("bootstrap.py").read_text()
-    service = root.joinpath("v2c-runner.service").read_text().replace("__RUNNER_PORT__", str(profile.runner_port))
+    service = (
+        root.joinpath("v2c-runner.service")
+        .read_text()
+        .replace("__RUNNER_PORT__", str(profile.runner_port))
+    )
     policy_service = root.joinpath("v2c-runner-firewall.service").read_text()
     setup = {
-        "source_url": profile.source_url, "source_sha256": profile.source_sha256,
+        "source_url": profile.source_url,
+        "source_sha256": profile.source_sha256,
         "workspace_disk_bytes": settings.workspace_disk_bytes,
         "images": [settings.image] + ([settings.postgres_image] if settings.postgres_image else []),
         "expected_profile_sha256": settings.profile_sha256(),
     }
+
     def item(path: str, content: str, mode: str = "0600") -> dict:
         return {"path": path, "owner": "root:root", "permissions": mode, "content": content}
+
     cloud = {
         "package_update": True,
-        "packages": ["python3", "python3-venv", "docker.io", "ca-certificates", "curl", "nftables", "util-linux", "e2fsprogs", "iproute2"],
+        "packages": [
+            "python3",
+            "python3-venv",
+            "docker.io",
+            "ca-certificates",
+            "curl",
+            "nftables",
+            "util-linux",
+            "e2fsprogs",
+            "iproute2",
+        ],
         "ssh_pwauth": False,
         "write_files": [
             item("/etc/v2c-runner/runner.json", settings.model_dump_json(indent=2)),
-            item("/etc/v2c-runner/server.crt", cert), item("/etc/v2c-runner/server.key", key),
+            item("/etc/v2c-runner/server.crt", cert),
+            item("/etc/v2c-runner/server.key", key),
             item("/etc/v2c-runner/client-ca.crt", ca),
             item("/etc/v2c-runner/bootstrap.json", json.dumps(setup, sort_keys=True)),
             item("/etc/v2c-runner/docker-client/config.json", '{"auths":{}}\n'),
@@ -142,14 +188,26 @@ def render(profile: BuildProfile) -> tuple[str, dict]:
             item("/etc/systemd/system/v2c-runner.service", service, "0644"),
             item("/etc/systemd/system/v2c-runner-firewall.service", policy_service, "0644"),
         ],
-        "runcmd": [["timeout", str(profile.bootstrap_timeout_seconds), "python3", "/opt/v2c-runner-bootstrap.py"]],
+        "runcmd": [
+            [
+                "timeout",
+                str(profile.bootstrap_timeout_seconds),
+                "python3",
+                "/opt/v2c-runner-bootstrap.py",
+            ]
+        ],
     }
     # JSON is valid YAML; the literal allocation marker remains visible for the
     # gateway's bounded replacement without interpreting arbitrary templates.
     output = "#cloud-config\n" + json.dumps(cloud, ensure_ascii=False, indent=2) + "\n"
-    receipt = {"runner_profile_sha256": settings.profile_sha256(), "runner_server_name": profile.runner_server_name,
-               "runtime_image": settings.image, "source_sha256": profile.source_sha256,
-               "contains_operator_secrets": True, "cloud_boot_tested": False}
+    receipt = {
+        "runner_profile_sha256": settings.profile_sha256(),
+        "runner_server_name": profile.runner_server_name,
+        "runtime_image": settings.image,
+        "source_sha256": profile.source_sha256,
+        "contains_operator_secrets": True,
+        "cloud_boot_tested": False,
+    }
     return output, receipt
 
 
@@ -169,11 +227,17 @@ def main() -> None:
     cloud, receipt = render(profile)
     write_private(args.output, cloud)
     write_private(args.output.with_suffix(".profile.json"), json.dumps(receipt, indent=2) + "\n")
-    print(json.dumps({"output": str(args.output), "runner_profile_sha256": receipt["runner_profile_sha256"]}))
+    print(
+        json.dumps(
+            {"output": str(args.output), "runner_profile_sha256": receipt["runner_profile_sha256"]}
+        )
+    )
 
 
 if __name__ == "__main__":
     try:
         main()
     except Exception:
-        raise SystemExit("Runner template generation failed; validate operator files/configuration (secrets not printed)")
+        raise SystemExit(
+            "Runner template generation failed; validate operator files/configuration (secrets not printed)"
+        )
