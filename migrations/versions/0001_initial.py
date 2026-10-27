@@ -6,8 +6,8 @@ Revises: none
 This migration freezes the initial schema; it never imports mutable app metadata.
 """
 
-from alembic import op
 import sqlalchemy as sa
+from alembic import op
 
 revision = "0001"
 down_revision = None

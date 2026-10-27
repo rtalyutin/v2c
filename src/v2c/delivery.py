@@ -14,11 +14,9 @@ from pathlib import Path
 
 from .intake import (
     ImportLimits,
-    IntakeError,
     Snapshot,
-    _git_environment,
-    _inventory,
     git_command,
+    git_environment,
     inspect_snapshot,
     safe_relative_path,
 )
@@ -80,7 +78,7 @@ def scan_secrets(root: Path, *, include_git_history: bool = False) -> list[str]:
 
                 body = subprocess.run(
                     ["git", "-C", str(root), "cat-file", "blob", sha],
-                    env=_git_environment(),
+                    env=git_environment(),
                     stdout=subprocess.PIPE,
                     stderr=subprocess.DEVNULL,
                     check=True,

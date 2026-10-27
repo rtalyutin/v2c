@@ -1,0 +1,14 @@
+{
+  "name": "v2c-panel-checks",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test:ui": "playwright test",
+    "format:web": "prettier --write src/v2c/web tests/browser playwright.config.js package.json",
+    "check:web": "prettier --check src/v2c/web tests/browser playwright.config.js package.json"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.60.0",
+    "prettier": "3.8.3"
+  }
+}

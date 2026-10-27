@@ -1,14 +1,13 @@
 """Independent state oracles for V2C-01..08, typed EAV and handoff gates."""
 
 import concurrent.futures
-import os
 
 import pytest
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from v2c.engine import DomainError, Engine, REQUIRED_VERIFICATIONS
+from v2c.engine import REQUIRED_VERIFICATIONS, DomainError, Engine
 from v2c.models import Attempt, EntityParameterValue
 
 
@@ -211,7 +210,7 @@ def test_idempotent_intent_and_snapshot_project(state):
 
 def test_single_active_run_and_wait_releases_worker(state):
     e, _, p, sn, _ = state
-    other = e.create_run(p["id"], sn["id"], "request-2")
+    e.create_run(p["id"], sn["id"], "request-2")
     first = claim(state)
     assert e.claim_next("another") is None
     e.set_waiting(first["attempt"]["id"], 1, "NEEDS_INPUT", "MISSING_INPUT")

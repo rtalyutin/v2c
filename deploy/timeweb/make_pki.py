@@ -5,10 +5,10 @@ from __future__ import annotations
 
 import argparse
 import os
-from pathlib import Path
 import re
 import secrets
 import subprocess
+from pathlib import Path
 
 
 def command(*argv: str) -> None:

@@ -6,11 +6,11 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-from pathlib import Path
 import subprocess
+import sys
 import tarfile
 import tempfile
-import sys
+from pathlib import Path
 
 
 def run(argv: list[str]) -> None:
@@ -60,16 +60,12 @@ def main() -> None:
         # Source is operator-pinned and checksum-verified before any build runs.
         run(["python3", "-m", "venv", str(root / "venv")])
         python = str(root / "venv/bin/python")
+        runtime_lock = candidates[0] / "requirements-runtime.lock"
+        if not runtime_lock.is_file():
+            # Older operator-pinned source archives used the combined lock.
+            runtime_lock = candidates[0] / "requirements.lock"
         run(
-            [
-                python,
-                "-m",
-                "pip",
-                "install",
-                "--disable-pip-version-check",
-                "-r",
-                str(candidates[0] / "requirements.lock"),
-            ]
+            [python, "-m", "pip", "install", "--disable-pip-version-check", "-r", str(runtime_lock)]
         )
         run([python, "-m", "pip", "install", "--no-deps", str(candidates[0])])
     python = str(root / "venv/bin/python")

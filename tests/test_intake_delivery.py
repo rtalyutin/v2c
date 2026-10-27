@@ -6,7 +6,6 @@ import stat
 import subprocess
 import tarfile
 import zipfile
-from pathlib import Path
 
 import pytest
 
@@ -262,7 +261,8 @@ def test_code_only_snapshot_archive_roundtrip(tmp_path):
 
 def test_restore_source_after_control_workspace_loss(tmp_path):
     import shutil
-    from v2c.intake import source_git_bundles, snapshot_archive_bytes, restore_source_snapshot
+
+    from v2c.intake import restore_source_snapshot, snapshot_archive_bytes, source_git_bundles
 
     source = import_sample(tmp_path)
     code, bundles = snapshot_archive_bytes(source), source_git_bundles(source)
@@ -369,7 +369,7 @@ def test_delivery_rejects_unknown_or_escaping_command_cwd(tmp_path):
 
 
 def test_executable_mode_survives_import_runner_recovery_and_delivery(tmp_path):
-    from v2c.intake import snapshot_archive_bytes, source_git_bundles, restore_source_snapshot
+    from v2c.intake import restore_source_snapshot, snapshot_archive_bytes, source_git_bundles
 
     archive = tmp_path / "script.zip"
     info = zipfile.ZipInfo("scripts/check.sh")

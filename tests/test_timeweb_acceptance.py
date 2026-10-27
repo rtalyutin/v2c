@@ -5,30 +5,30 @@ import importlib.util
 import ipaddress
 import json
 import os
-from pathlib import Path
 import shutil
 import ssl
 import subprocess
 import sys
+from pathlib import Path
 
 import httpx
 import pytest
 from fastapi.testclient import TestClient
 
+from v2c.adapters.model import EnvSecretResolver, ModelResult, ModelUsage, OpenAICompatibleModel
+from v2c.config import Settings, build_model
+from v2c.model_probe import probe as model_probe
+from v2c.runner_service import RunnerSettings
 from v2c.timeweb_gateway import (
     AllocateRequest,
     GatewayError,
     GatewaySettings,
     RunnerProbe,
-    TimewebGateway,
     TimewebClient,
+    TimewebGateway,
     create_app,
     public_firewall_rules,
 )
-from v2c.adapters.model import ModelResult, ModelUsage, OpenAICompatibleModel, EnvSecretResolver
-from v2c.config import Settings, build_model
-from v2c.model_probe import probe as model_probe
-from v2c.runner_service import RunnerSettings
 
 
 def free_settings(monkeypatch):

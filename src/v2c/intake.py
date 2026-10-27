@@ -128,7 +128,7 @@ def _native_binary(data: bytes) -> bool:
     )
 
 
-def _git_environment() -> dict[str, str]:
+def git_environment() -> dict[str, str]:
     # Do not inherit Git config, proxies, askpass programs or infrastructure secrets.
     return {
         "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
@@ -144,6 +144,9 @@ def _git_environment() -> dict[str, str]:
         "GIT_AUTHOR_DATE": "2000-01-01T00:00:00+0000",
         "GIT_COMMITTER_DATE": "2000-01-01T00:00:00+0000",
     }
+
+
+_git_environment = git_environment  # Compatibility for existing internal consumers.
 
 
 def git_command(root: Path, *args: str, timeout: int = 30, env: dict | None = None) -> str:
@@ -164,7 +167,7 @@ def git_command(root: Path, *args: str, timeout: int = 30, env: dict | None = No
     try:
         result = subprocess.run(
             command,
-            env=env or _git_environment(),
+            env=env or git_environment(),
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
             timeout=timeout,
@@ -175,7 +178,7 @@ def git_command(root: Path, *args: str, timeout: int = 30, env: dict | None = No
     return result.stdout.decode("utf-8", errors="replace").strip()
 
 
-def _inventory(root: Path, limits: ImportLimits) -> tuple[dict, ...]:
+def inventory_files(root: Path, limits: ImportLimits) -> tuple[dict, ...]:
     files, total = [], 0
     seen = set()
     for path in sorted(root.rglob("*")):
@@ -217,8 +220,11 @@ def _inventory(root: Path, limits: ImportLimits) -> tuple[dict, ...]:
     return tuple(files)
 
 
+_inventory = inventory_files  # Compatibility for callers of the old private name.
+
+
 def _repository(root: Path, name: str, source: str, limits: ImportLimits) -> RepositorySnapshot:
-    files = _inventory(root, limits)
+    files = inventory_files(root, limits)
     sha = git_command(root, "rev-parse", "HEAD")
     return RepositorySnapshot(
         name, f"repositories/{name}", sha, hashlib.sha256(_json(files)).hexdigest(), files, source
@@ -426,7 +432,7 @@ class HTTPSGitFetcher:
             raise IntakeError("REPOSITORY_ADDRESS_NOT_ALLOWED")
         destination.mkdir(parents=True)
         git_command(destination, "init", "--initial-branch=main", "--template=")
-        env = _git_environment()
+        env = git_environment()
         if source.secret_ref:
             if self.secret_resolver is None:
                 raise IntakeError("REPOSITORY_SECRET_UNAVAILABLE")

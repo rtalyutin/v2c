@@ -7,7 +7,6 @@ import pytest
 from v2c.adapters.model import (
     AdapterError,
     EnvSecretResolver,
-    ErrorCategory,
     ModelProfile,
     ModelRequest,
     OpenAICompatibleModel,

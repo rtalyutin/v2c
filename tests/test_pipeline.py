@@ -21,26 +21,24 @@ from v2c.adapters.model import (
     ModelUsage,
     OpenAICompatibleModel,
 )
-from v2c.config import Settings, build_model
 from v2c.adapters.runner import CommandRequest, CommandResult, VMAllocation
+from v2c.config import Settings, build_model
 from v2c.engine import DomainError, Engine
 from v2c.intake import safe_import_archive
 from v2c.pipeline import (
     EnvironmentRecipe,
     FileChange,
+    InputRequired,
     PatchProposal,
     Pipeline,
-    InputRequired,
     archive_context,
     archive_executables,
     assert_source_unchanged,
     code_zip,
-    snapshot_archive,
     stable_id,
 )
 from v2c.storage import LocalArtifactStore
 from v2c.worker import run_once
-
 
 ORIGINAL = b"def answer():\n    return 42\n"
 REFACTORED = b'def answer():\n    """The supported answer contract."""\n    return 42\n'

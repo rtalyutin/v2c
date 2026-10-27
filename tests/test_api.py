@@ -9,7 +9,6 @@ from v2c.config import Settings
 from v2c.engine import Engine
 from v2c.storage import LocalArtifactStore
 
-
 TOKEN = "operator-test-token-" + "a" * 24
 OTHER = "operator-test-token-" + "b" * 24
 

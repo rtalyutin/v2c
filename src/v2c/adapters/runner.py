@@ -8,15 +8,17 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import ipaddress
 import json
 import re
-import ipaddress
 import ssl
-from typing import Any, Literal
+from typing import Any, Literal, Self, cast
 from urllib.parse import quote, urlsplit
 
 import httpx
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from ..contracts.runner import AuthorizeReply, PrepareReply
 
 _ID = r"^[A-Za-z0-9_-]{1,128}$"
 
@@ -92,7 +94,7 @@ class CommandResult(BaseModel):
     reason: str | None = None
 
     @model_validator(mode="after")
-    def confirmed_terminal(self):
+    def confirmed_terminal(self) -> Self:
         if self.state in {"SUCCEEDED", "FAILED", "CANCELLED"} and not self.stop_confirmed:
             raise ValueError("terminal command result requires confirmed termination")
         if self.state == "SUCCEEDED" and self.exit_code != 0:
@@ -297,7 +299,7 @@ class RunnerClient(_HTTPSClient):
                 delivery_unknown=True,
             ) from error
 
-    async def prepare(self, request: PrepareRequest) -> dict[str, Any]:
+    async def prepare(self, request: PrepareRequest) -> PrepareReply:
         result = await self._object("POST", "/v1/workspaces", request.model_dump())
         if result.get("workspace_id") != request.workspace_id or result.get("state") != "READY":
             raise RunnerError(
@@ -305,11 +307,11 @@ class RunnerClient(_HTTPSClient):
                 "runner workspace readiness is unconfirmed",
                 delivery_unknown=True,
             )
-        return result
+        return cast(PrepareReply, result)
 
     async def authorize(
         self, workspace_id: str, attempt_id: str, generation: int
-    ) -> dict[str, Any]:
+    ) -> AuthorizeReply:
         request = AuthorizationRequest(
             workspace_id=workspace_id, attempt_id=attempt_id, generation=generation
         )
@@ -320,7 +322,7 @@ class RunnerClient(_HTTPSClient):
                 "runner authorization identity is unconfirmed",
                 delivery_unknown=True,
             )
-        return result
+        return cast(AuthorizeReply, result)
 
     async def execute(self, request: CommandRequest) -> CommandResult:
         return await self._command_result(

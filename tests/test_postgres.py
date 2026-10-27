@@ -4,18 +4,18 @@ CI migrates V2C_TEST_POSTGRES_URL first. No schema creation, dropping or shared
 row cleanup is performed here. Only uniquely owned fixture rows are removed.
 """
 
-from concurrent.futures import ThreadPoolExecutor
 import os
-from threading import Barrier
 import uuid
+from concurrent.futures import ThreadPoolExecutor
+from threading import Barrier
 
 import pytest
-from sqlalchemy import delete, func, inspect, select, text
+from sqlalchemy import delete, event, func, inspect, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from v2c.db import transaction
-from v2c.engine import Engine
+from v2c.engine import DomainError, Engine
 from v2c.models import (
     Approval,
     Artifact,
@@ -150,6 +150,98 @@ def test_postgres_migration_schema_global_claim_and_atomic_budget():
                         provenance={},
                     )
                 )
+    finally:
+        cleanup_owned(e1, owner)
+        e1.db.dispose()
+        e2.db.dispose()
+
+
+def test_postgres_recovery_fencing_and_atomic_command_journal():
+    """Independent pools observe persisted fencing and rollback after an INSERT.
+
+    No cloud dispatch takes place. The injected exception occurs after PostgreSQL
+    executes an intent INSERT but before its transaction commits, so the second
+    Engine must observe neither that intent nor its COMMAND_PREPARED event.
+    """
+    now = [1000.0]
+    e1 = Engine(URL, clock=lambda: now[0])
+    e2 = Engine(URL, clock=lambda: now[0])
+    owner = "pg-recovery-" + uuid.uuid4().hex
+    try:
+        assert e1.db.dialect.name == "postgresql", "Use a PostgreSQL test URL"
+        with e1.db.connect() as c1, e2.db.connect() as c2:
+            assert c1.scalar(text("select pg_backend_pid()")) != c2.scalar(
+                text("select pg_backend_pid()")
+            )
+        with Session(e1.db) as session:
+            assert session.get(RuntimeLock, 1) is not None
+            if session.scalar(
+                select(func.count()).select_from(Run).where(Run.status.in_(["QUEUED", "RUNNING"]))
+            ):
+                pytest.skip("Test database contains unrelated executable runs")
+
+        project = e1.create_project(owner, "PostgreSQL recovery")
+        snapshot = e1.create_snapshot(project["id"], {"repositories": []})
+        run = e1.create_run(project["id"], snapshot["id"], "recovery")
+        claim = e1.claim_next("old-worker", lease_seconds=10)
+        assert claim is not None and claim["run"]["id"] == run["id"]
+        attempt_id, old_generation = claim["attempt"]["id"], claim["attempt"]["generation"]
+        existing_id = "pg-command-" + uuid.uuid4().hex
+        e1.prepare_command(attempt_id, old_generation, existing_id, {"operation": "synthetic"})
+        e1.record_command_result(existing_id, old_generation, "RUNNING")
+
+        now[0] += 11
+        recovered = e2.recover_expired(run["id"], "replacement-worker", lease_seconds=60)
+        generation = recovered["attempt"]["generation"]
+        assert generation == old_generation + 1
+        assert recovered["attempt"]["id"] == attempt_id
+        assert recovered["step"]["attempts_used"] == 1
+        with pytest.raises(DomainError, match="STALE_GENERATION"):
+            e1.record_command_result(existing_id, old_generation, "SUCCEEDED", {"exit_code": 0})
+        with pytest.raises(DomainError, match="STALE_GENERATION"):
+            e1.prepare_command(attempt_id, old_generation, "stale-" + owner, {})
+        assert e2.get_command(existing_id)["status"] == "RUNNING"
+        with pytest.raises(DomainError, match="RECONCILIATION_REQUIRED"):
+            e2.prepare_command(attempt_id, generation, "premature-" + owner, {})
+        with pytest.raises(DomainError, match="EXECUTION_OUTCOME_UNKNOWN"):
+            e2.finish_attempt(attempt_id, generation)
+
+        # A current-generation readback is allowed; only reconciliation then
+        # grants permission for a new intent under the recovered generation.
+        e2.record_command_result(existing_id, generation, "SUCCEEDED", {"exit_code": 0})
+        e2.confirm_reconciliation(attempt_id, generation)
+        before_events = e2.events(run["id"])
+        before_claim = e2.assert_current(attempt_id, generation)
+        atomic_id = "pg-atomic-" + uuid.uuid4().hex
+        inserted = []
+
+        def interrupt_after_insert(connection, cursor, statement, parameters, context, executemany):
+            if statement.lstrip().upper().startswith("INSERT INTO COMMANDS "):
+                inserted.append(True)
+                raise RuntimeError("synthetic failure after command INSERT before commit")
+
+        event.listen(e1.db, "after_cursor_execute", interrupt_after_insert)
+        try:
+            with pytest.raises(RuntimeError, match="after command INSERT"):
+                e1.prepare_command(attempt_id, generation, atomic_id, {"operation": "atomic-probe"})
+        finally:
+            event.remove(e1.db, "after_cursor_execute", interrupt_after_insert)
+        assert inserted == [True], "The test must exercise a real PostgreSQL INSERT"
+        with pytest.raises(DomainError, match="NOT_FOUND"):
+            e2.get_command(atomic_id)
+        assert e2.events(run["id"]) == before_events
+        assert e2.assert_current(attempt_id, generation) == before_claim
+
+        # The rolled-back identity can now be admitted once, proving that no
+        # partial intent, fencing update or event survived on the first pool.
+        accepted = e2.prepare_command(
+            attempt_id, generation, atomic_id, {"operation": "atomic-probe"}
+        )
+        assert accepted["status"] == "PREPARED"
+        assert e1.get_command(atomic_id)["generation"] == generation
+        e2.record_command_result(atomic_id, generation, "SUCCEEDED", {"exit_code": 0})
+        assert e2.finish_attempt(attempt_id, generation)["status"] == "AWAITING_HANDOFF"
+        assert e1.list_steps(run["id"])[0]["attempts_used"] == 1
     finally:
         cleanup_owned(e1, owner)
         e1.db.dispose()

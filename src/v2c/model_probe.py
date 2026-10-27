@@ -17,7 +17,6 @@ from typing import Any
 from .adapters.model import AdapterError, ModelRequest
 from .config import Settings, build_model
 
-
 PROBE_SCHEMA = {
     "type": "object",
     "additionalProperties": False,

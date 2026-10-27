@@ -2,7 +2,6 @@ import base64
 import hashlib
 import io
 import json
-import sqlite3
 import threading
 import zipfile
 
@@ -16,7 +15,7 @@ from v2c.adapters.runner import (
     PrepareRequest,
     RunnerError,
 )
-from v2c.runner_service import DockerBackend, Journal, RunnerService, RunnerSettings, create_app
+from v2c.runner_service import DockerBackend, RunnerService, RunnerSettings, create_app
 
 
 class ControlledBackend:

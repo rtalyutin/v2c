@@ -1,0 +1,153 @@
+{
+  "command_hash": "345a80728f647085ae33967cfb95aac94929e45c39ecfb7e78b96ac9203175e4",
+  "command_json": "{\"command_id\":\"cmd-qa\",\"workspace_id\":\"work-qa\",\"attempt_id\":\"attempt-qa\",\"generation\":3,\"argv\":[\"python3\",\"-c\",\"print(42)\"],\"cwd\":\".\",\"timeout_seconds\":20}",
+  "digest_absent": "c654d39cbb8a1b5c493ce691bc226a11b502092ab05e0410f5d044471cd4f6e1",
+  "digest_null": "b3ddd5a6538b592cf4f5f9b1716544f641491e49d01222e41fa909f70ed38079",
+  "schemas": {
+    "CommandRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "argv": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 256,
+          "minItems": 1,
+          "title": "Argv",
+          "type": "array"
+        },
+        "attempt_id": {
+          "pattern": "^[A-Za-z0-9_-]{1,128}$",
+          "title": "Attempt Id",
+          "type": "string"
+        },
+        "command_id": {
+          "pattern": "^[A-Za-z0-9_-]{1,128}$",
+          "title": "Command Id",
+          "type": "string"
+        },
+        "cwd": {
+          "default": ".",
+          "maxLength": 4096,
+          "minLength": 1,
+          "title": "Cwd",
+          "type": "string"
+        },
+        "generation": {
+          "minimum": 1,
+          "title": "Generation",
+          "type": "integer"
+        },
+        "timeout_seconds": {
+          "exclusiveMinimum": 0,
+          "title": "Timeout Seconds",
+          "type": "integer"
+        },
+        "workspace_id": {
+          "pattern": "^[A-Za-z0-9_-]{1,128}$",
+          "title": "Workspace Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "command_id",
+        "workspace_id",
+        "attempt_id",
+        "generation",
+        "argv",
+        "timeout_seconds"
+      ],
+      "title": "CommandRequest",
+      "type": "object"
+    },
+    "PrepareRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "archive_b64": {
+          "title": "Archive B64",
+          "type": "string"
+        },
+        "archive_sha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Archive Sha256",
+          "type": "string"
+        },
+        "attempt_id": {
+          "pattern": "^[A-Za-z0-9_-]{1,128}$",
+          "title": "Attempt Id",
+          "type": "string"
+        },
+        "generation": {
+          "minimum": 1,
+          "title": "Generation",
+          "type": "integer"
+        },
+        "input_manifest": {
+          "additionalProperties": true,
+          "title": "Input Manifest",
+          "type": "object"
+        },
+        "workspace_id": {
+          "pattern": "^[A-Za-z0-9_-]{1,128}$",
+          "title": "Workspace Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "workspace_id",
+        "attempt_id",
+        "generation",
+        "archive_b64",
+        "archive_sha256",
+        "input_manifest"
+      ],
+      "title": "PrepareRequest",
+      "type": "object"
+    },
+    "VMAllocation": {
+      "additionalProperties": false,
+      "properties": {
+        "reason": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Z0-9_]{1,128}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reason"
+        },
+        "runner_endpoint": {
+          "title": "Runner Endpoint",
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "CREATING",
+            "READY",
+            "DESTROYING",
+            "DESTROYED",
+            "UNKNOWN"
+          ],
+          "title": "State",
+          "type": "string"
+        },
+        "vm_id": {
+          "pattern": "^[A-Za-z0-9_-]{1,128}$",
+          "title": "Vm Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "vm_id",
+        "runner_endpoint",
+        "state"
+      ],
+      "title": "VMAllocation",
+      "type": "object"
+    }
+  }
+}

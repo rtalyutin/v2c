@@ -11,8 +11,8 @@ from v2c.adapters.model import EnvSecretResolver, OpenAICompatibleModel
 from v2c.adapters.runner import VMAllocation
 from v2c.config import GROQ_FREE_PRESET, Settings, build_model, build_pipeline
 from v2c.engine import Engine
-from v2c.pipeline import InputRequired, Pipeline
 from v2c.model_probe import main, probe
+from v2c.pipeline import InputRequired, Pipeline
 
 
 def model_settings():
