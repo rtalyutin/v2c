@@ -1,9 +1,10 @@
 # Проверка рефакторинга для сопровождения человеком
 
 Дата: 27.10.2026. Baseline: `bea8639471537fb9c181089cdb027d69e31a041b`.
-Проверенный код сохранён в локальном implementation commit
-`5c5a8e32e9cc9843611a1349db3b0f82f75d20ed`; последующее изменение отчёта
-не меняет код и тесты. Ветка: `codex/human-maintainability`. Объём: M01–M09 из [ТЗ](maintenance/specification.md);
+Проверенная опубликованная реализация:
+[`50dedd5f760c9b75c6d216a35c9e4a29414a9983`](https://github.com/rtalyutin/v2c/commit/50dedd5f760c9b75c6d216a35c9e4a29414a9983).
+Ветка: `codex/human-maintainability`, [draft PR №1](https://github.com/rtalyutin/v2c/pull/1).
+Объём: M01–M09 из [ТЗ](maintenance/specification.md);
 для M10 подготовлен [протокол](maintenance/human-acceptance.md), человеческое
 исполнение не проведено.
 
@@ -32,10 +33,29 @@ git diff --check
 Локально отсутствуют PostgreSQL и Docker Compose: пропущены два PostgreSQL-теста
 (конкуренция; fencing/reconciliation/rollback) и настоящий Compose env test.
 Полный CI настроен с этими зависимостями и отклоняет любой skipped case.
-**Полный CI ожидает публикации ветки и запуска Actions.** Публикация полной
-ветки и создание draft PR явно разрешены пользователем. Результаты PostgreSQL,
-Compose и container build будут записаны для конкретного удалённого SHA.
-Результат старого CI не переносится на эти изменения.
+**Полный CI PASS:** [run 40509217223](https://github.com/rtalyutin/v2c/actions/runs/40509217223),
+[job 122206371486](https://github.com/rtalyutin/v2c/actions/runs/40509217223/job/122206371486).
+Head — `50dedd5f760c9b75c6d216a35c9e4a29414a9983`; фактический PR checkout —
+`3f28f83d4e0d29ef7b5c2e3ae1c85dcbaa56bf53`, merge с baseline `bea8639`.
+Git tree обеих ревизий и локальной опубликованной версии совпал:
+`1bccd382e23f82acbca7226dcb7be3fa5b0c533b`.
+
+| Полный CI | Фактический результат из job log |
+|---|---|
+| Установка из lock и проверка свежести locks | PASS |
+| Ruff / strict mypy / import boundaries / docs / OpenAPI | PASS: 99 Python-файлов, 53 typed source files, 15 Markdown-документов |
+| Python suite, включая оба PostgreSQL-теста и настоящий Compose env test | **270 passed, 0 skipped, 1 warning**, 42,25 с |
+| PostgreSQL upgrade и schema comparison, SQLite upgrade и comparison | PASS; обе проверки не обнаружили drift |
+| Prettier / Chromium | PASS; **8 scenarios**, 4,8 с |
+| Отдельный `docker compose config --quiet` | PASS |
+| `docker build --tag v2c:ci .` | PASS |
+
+Локальный идентификатор собранного CI-образа:
+`sha256:0ee7c0f3af5ced7da8beb66c100b6c0ff5c3399e0ed235ff3358e8e31d08ef9d`.
+Образ собран в runner Actions; публикация в registry и развёртывание не заявляются.
+Результат подтверждён чтением шагов и полного журнала независимым проверяющим ИИ.
+Последующие изменения этого отчёта и TASK_STATE не меняют проверенный код;
+актуальные проверки последних документационных коммитов доступны в PR.
 
 Среда: Linux x86_64, Python 3.12.14, закреплённые Python/Node dependencies.
 Локальный Chromium 153.0.8010.0 указан через документированный override.
