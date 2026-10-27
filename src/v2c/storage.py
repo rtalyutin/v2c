@@ -1,4 +1,5 @@
 """Immutable artifact stores. A reference is returned only after read-back verification."""
+
 from __future__ import annotations
 
 import base64
@@ -31,9 +32,15 @@ class ArtifactStore(Protocol):
 
 
 def checked_key(key: str) -> str:
-    if (not key or len(key) > 1024 or "\\" in key or "\x00" in key
-            or key.startswith("/") or any(p in ("", ".", "..") for p in key.split("/"))
-            or ":" in key):
+    if (
+        not key
+        or len(key) > 1024
+        or "\\" in key
+        or "\x00" in key
+        or key.startswith("/")
+        or any(p in ("", ".", "..") for p in key.split("/"))
+        or ":" in key
+    ):
         raise StorageError("INVALID_OBJECT_KEY")
     return PurePosixPath(key).as_posix()
 
@@ -44,6 +51,7 @@ def reference(key: str, data: bytes) -> ArtifactRef:
 
 class LocalArtifactStore:
     """Development backend; atomic no-replace publication, never an overwrite."""
+
     def __init__(self, root: Path | str):
         self.root = Path(root).resolve()
         self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -96,6 +104,7 @@ class S3ArtifactStore:
     blocking and TLS outside this adapter. S3-compatible endpoints must implement
     IfNoneMatch; unsupported endpoints fail closed rather than silently overwrite.
     """
+
     def __init__(self, client: Any, bucket: str, prefix: str = ""):
         self.client, self.bucket = client, bucket
         self.prefix = checked_key(prefix.rstrip("/")) + "/" if prefix else ""
@@ -107,8 +116,11 @@ class S3ArtifactStore:
         ref = reference(key, data)
         try:
             self.client.put_object(
-                Bucket=self.bucket, Key=self._key(key), Body=data,
-                ContentType="application/octet-stream", IfNoneMatch="*",
+                Bucket=self.bucket,
+                Key=self._key(key),
+                Body=data,
+                ContentType="application/octet-stream",
+                IfNoneMatch="*",
                 ChecksumSHA256=base64.b64encode(bytes.fromhex(ref.sha256)).decode(),
                 Metadata={"sha256": ref.sha256},
             )

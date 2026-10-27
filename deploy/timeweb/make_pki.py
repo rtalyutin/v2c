@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Generate local PoC PKI; no network, cloud calls, or secret stdout."""
+
 from __future__ import annotations
 
 import argparse
@@ -11,8 +12,14 @@ import subprocess
 
 
 def command(*argv: str) -> None:
-    subprocess.run(["openssl", *argv], check=True, stdin=subprocess.DEVNULL,
-                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30)
+    subprocess.run(
+        ["openssl", *argv],
+        check=True,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        timeout=30,
+    )
 
 
 def name(value: str) -> str:
@@ -31,26 +38,91 @@ def generate(output: Path, runner_name: str, gateway_name: str, days: int) -> No
     output.mkdir(parents=True, mode=0o700, exist_ok=False)
     old_mask = os.umask(0o077)
     try:
-        command("genpkey", "-algorithm", "EC", "-pkeyopt", "ec_paramgen_curve:P-256", "-out", str(output / "ca.key"))
-        command("req", "-x509", "-new", "-sha256", "-days", str(days), "-key", str(output / "ca.key"),
-                "-subj", "/CN=v2c operator PoC CA", "-addext", "basicConstraints=critical,CA:TRUE",
-                "-addext", "keyUsage=critical,keyCertSign,cRLSign", "-out", str(output / "ca.crt"))
+        command(
+            "genpkey",
+            "-algorithm",
+            "EC",
+            "-pkeyopt",
+            "ec_paramgen_curve:P-256",
+            "-out",
+            str(output / "ca.key"),
+        )
+        command(
+            "req",
+            "-x509",
+            "-new",
+            "-sha256",
+            "-days",
+            str(days),
+            "-key",
+            str(output / "ca.key"),
+            "-subj",
+            "/CN=v2c operator PoC CA",
+            "-addext",
+            "basicConstraints=critical,CA:TRUE",
+            "-addext",
+            "keyUsage=critical,keyCertSign,cRLSign",
+            "-out",
+            str(output / "ca.crt"),
+        )
         leaves = {
             "runner": (runner_name, [runner_name], "serverAuth"),
             "gateway": (gateway_name, [gateway_name, "timeweb-gateway"], "serverAuth"),
             "client": ("v2c-control", [], "clientAuth"),
         }
         for stem, (common, aliases, purpose) in leaves.items():
-            key, csr, cert, ext = (output / (stem + suffix) for suffix in (".key", ".csr", ".crt", ".ext"))
-            command("genpkey", "-algorithm", "EC", "-pkeyopt", "ec_paramgen_curve:P-256", "-out", str(key))
-            command("req", "-new", "-sha256", "-key", str(key), "-subj", "/CN=" + common, "-out", str(csr))
-            extensions = "basicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature\nextendedKeyUsage=" + purpose + "\n"
+            key, csr, cert, ext = (
+                output / (stem + suffix) for suffix in (".key", ".csr", ".crt", ".ext")
+            )
+            command(
+                "genpkey",
+                "-algorithm",
+                "EC",
+                "-pkeyopt",
+                "ec_paramgen_curve:P-256",
+                "-out",
+                str(key),
+            )
+            command(
+                "req",
+                "-new",
+                "-sha256",
+                "-key",
+                str(key),
+                "-subj",
+                "/CN=" + common,
+                "-out",
+                str(csr),
+            )
+            extensions = (
+                "basicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature\nextendedKeyUsage="
+                + purpose
+                + "\n"
+            )
             if aliases:
-                extensions += "subjectAltName=" + ",".join("DNS:" + alias for alias in aliases) + "\n"
+                extensions += (
+                    "subjectAltName=" + ",".join("DNS:" + alias for alias in aliases) + "\n"
+                )
             ext.write_text(extensions)
-            command("x509", "-req", "-sha256", "-days", str(days), "-in", str(csr), "-CA", str(output / "ca.crt"),
-                    "-CAkey", str(output / "ca.key"), "-set_serial", "0x" + secrets.token_hex(16),
-                    "-extfile", str(ext), "-out", str(cert))
+            command(
+                "x509",
+                "-req",
+                "-sha256",
+                "-days",
+                str(days),
+                "-in",
+                str(csr),
+                "-CA",
+                str(output / "ca.crt"),
+                "-CAkey",
+                str(output / "ca.key"),
+                "-set_serial",
+                "0x" + secrets.token_hex(16),
+                "-extfile",
+                str(ext),
+                "-out",
+                str(cert),
+            )
             csr.unlink()
             ext.unlink()
         for path in output.iterdir():

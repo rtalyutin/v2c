@@ -1,4 +1,5 @@
 """Closed operator API. Project code is never executed by this process."""
+
 from __future__ import annotations
 
 import asyncio
@@ -70,8 +71,19 @@ class RepositoryImport(Body):
     repositories: list[Repository] = Field(min_length=1, max_length=20)
 
 
-SENSITIVE_KEYS = {"workspace_root", "root", "local_path", "secret", "api_key", "token", "runner_token", "api_token"}
-SECRET_PATTERN = re.compile(r"(?:sk-[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9]{20,}|AKIA[A-Z0-9]{16})")
+SENSITIVE_KEYS = {
+    "workspace_root",
+    "root",
+    "local_path",
+    "secret",
+    "api_key",
+    "token",
+    "runner_token",
+    "api_token",
+}
+SECRET_PATTERN = re.compile(
+    r"(?:sk-[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9]{20,}|AKIA[A-Z0-9]{16})"
+)
 
 
 def public(value):
@@ -84,7 +96,9 @@ def public(value):
     return value
 
 
-def create_app(settings: Settings | None = None, *, engine: Engine | None = None, store=None) -> FastAPI:
+def create_app(
+    settings: Settings | None = None, *, engine: Engine | None = None, store=None
+) -> FastAPI:
     settings = settings or Settings.from_env()
     owned_engine = engine is None
 
@@ -106,7 +120,9 @@ def create_app(settings: Settings | None = None, *, engine: Engine | None = None
     app.state.settings = settings
 
     def auth(request: Request, authorization: Annotated[str | None, Header()] = None) -> str:
-        supplied = authorization[7:] if authorization and authorization.startswith("Bearer ") else ""
+        supplied = (
+            authorization[7:] if authorization and authorization.startswith("Bearer ") else ""
+        )
         for owner, token in request.app.state.tokens.items():
             if hmac.compare_digest(supplied, token):
                 return owner
@@ -153,7 +169,11 @@ def create_app(settings: Settings | None = None, *, engine: Engine | None = None
 
     @app.get("/panel.js", include_in_schema=False)
     def panel_script():
-        return FileResponse(Path(__file__).parent / "web" / "panel.js", media_type="application/javascript", headers={"Cache-Control": "no-store"})
+        return FileResponse(
+            Path(__file__).parent / "web" / "panel.js",
+            media_type="application/javascript",
+            headers={"Cache-Control": "no-store"},
+        )
 
     @app.get("/projects")
     def projects(owner: str = Depends(auth), e: Engine = Depends(eng)):
@@ -173,8 +193,16 @@ def create_app(settings: Settings | None = None, *, engine: Engine | None = None
         return public(e.list_snapshots(project_id))
 
     @app.post("/projects/{project_id}/imports", status_code=201)
-    async def imports(project_id: str, request: Request, owner: str = Depends(auth), e: Engine = Depends(eng)):
-        from .intake import safe_import_archive, import_repositories, RepositoryInput, HTTPSGitFetcher
+    async def imports(
+        project_id: str, request: Request, owner: str = Depends(auth), e: Engine = Depends(eng)
+    ):
+        from .intake import (
+            safe_import_archive,
+            import_repositories,
+            RepositoryInput,
+            HTTPSGitFetcher,
+        )
+
         project(e, owner, project_id)
         length = request.headers.get("content-length")
         if length:
@@ -198,16 +226,26 @@ def create_app(settings: Settings | None = None, *, engine: Engine | None = None
                     data = RepositoryImport.model_validate_json(Path(incoming.name).read_bytes())
                     repos = [RepositoryInput(**r.model_dump()) for r in data.repositories]
                     from .adapters.model import EnvSecretResolver
+
                     fetcher = HTTPSGitFetcher(settings.git_allowed_hosts, EnvSecretResolver())
-                    imported = await asyncio.to_thread(import_repositories, repos, directory, project_id=project_id, fetcher=fetcher)
+                    imported = await asyncio.to_thread(
+                        import_repositories,
+                        repos,
+                        directory,
+                        project_id=project_id,
+                        fetcher=fetcher,
+                    )
                 else:
-                    imported = await asyncio.to_thread(safe_import_archive, Path(incoming.name), directory, project_id=project_id)
+                    imported = await asyncio.to_thread(
+                        safe_import_archive, Path(incoming.name), directory, project_id=project_id
+                    )
             except (ValueError, ValidationError) as exc:
                 # Never reflect archive entries, command lines or credential-bearing input.
                 raise HTTPException(422, "INVALID_IMPORT") from exc
         manifest = dict(imported.manifest)
         manifest["workspace_root"] = str(imported.root.resolve())
         from .intake import snapshot_archive_bytes, source_git_bundles
+
         archive = await asyncio.to_thread(snapshot_archive_bytes, imported)
         key = f"snapshots/{project_id}/{imported.snapshot_id}.zip"
         ref = await asyncio.to_thread(request.app.state.store.put_bytes, key, archive)
@@ -217,9 +255,16 @@ def create_app(settings: Settings | None = None, *, engine: Engine | None = None
         git_bundles = await asyncio.to_thread(source_git_bundles, imported)
         manifest["source_git_bundles"] = {}
         for name, data in git_bundles.items():
-            bundle_ref = await asyncio.to_thread(request.app.state.store.put_bytes,
-                f"snapshots/{project_id}/{imported.snapshot_id}/{name}.bundle", data)
-            manifest["source_git_bundles"][name] = {"key": bundle_ref.key, "sha256": bundle_ref.sha256, "size": bundle_ref.size}
+            bundle_ref = await asyncio.to_thread(
+                request.app.state.store.put_bytes,
+                f"snapshots/{project_id}/{imported.snapshot_id}/{name}.bundle",
+                data,
+            )
+            manifest["source_git_bundles"][name] = {
+                "key": bundle_ref.key,
+                "sha256": bundle_ref.sha256,
+                "size": bundle_ref.size,
+            }
         # Only a completely stored, hashed object may acquire its DB pointer.
         snapshot = e.create_snapshot(project_id, manifest)
         return public(snapshot)
@@ -230,20 +275,35 @@ def create_app(settings: Settings | None = None, *, engine: Engine | None = None
         return public(e.list_runs(project_id))
 
     @app.post("/projects/{project_id}/runs", status_code=201)
-    def new_run(project_id: str, body: NewRun, owner: str = Depends(auth), e: Engine = Depends(eng)):
+    def new_run(
+        project_id: str, body: NewRun, owner: str = Depends(auth), e: Engine = Depends(eng)
+    ):
         project(e, owner, project_id)
-        limits = {"max_attempts_per_step": 5, "run_timeout_seconds": settings.run_timeout_seconds,
-                  "command_timeout_seconds": settings.command_timeout_seconds,
-                  "execution_limits": settings.execution_limits}
+        limits = {
+            "max_attempts_per_step": 5,
+            "run_timeout_seconds": settings.run_timeout_seconds,
+            "command_timeout_seconds": settings.command_timeout_seconds,
+            "execution_limits": settings.execution_limits,
+        }
         if settings.model_base_url and settings.model:
             limits["model_profile_version"] = settings.model_profile_version
-        return public(e.create_run(project_id, body.snapshot_id, body.idempotency_key, limits, body.parent_run_id))
+        return public(
+            e.create_run(
+                project_id, body.snapshot_id, body.idempotency_key, limits, body.parent_run_id
+            )
+        )
 
     @app.get("/runs/{run_id}")
     def get_run(run_id: str, owner: str = Depends(auth), e: Engine = Depends(eng)):
         r = run(e, owner, run_id)
-        return public({**r, "steps": e.list_steps(run_id), "usage": e.usage(run_id),
-                       "verifications": e.verifications(run_id)})
+        return public(
+            {
+                **r,
+                "steps": e.list_steps(run_id),
+                "usage": e.usage(run_id),
+                "verifications": e.verifications(run_id),
+            }
+        )
 
     @app.get("/runs/{run_id}/events")
     def events(run_id: str, owner: str = Depends(auth), e: Engine = Depends(eng)):
@@ -258,7 +318,11 @@ def create_app(settings: Settings | None = None, *, engine: Engine | None = None
     @app.post("/runs/{run_id}/decisions")
     def decide(run_id: str, body: Decision, owner: str = Depends(auth), e: Engine = Depends(eng)):
         r = run(e, owner, run_id)
-        return public(e.decide_plan(run_id, r["project_id"], body.snapshot_id, body.plan_revision, body.approved, owner))
+        return public(
+            e.decide_plan(
+                run_id, r["project_id"], body.snapshot_id, body.plan_revision, body.approved, owner
+            )
+        )
 
     @app.post("/runs/{run_id}/cancel")
     def cancel(run_id: str, owner: str = Depends(auth), e: Engine = Depends(eng)):
@@ -273,7 +337,9 @@ def create_app(settings: Settings | None = None, *, engine: Engine | None = None
         return public(e.resume_run(run_id))
 
     @app.post("/runs/{run_id}/acceptance")
-    def acceptance(run_id: str, body: Acceptance, owner: str = Depends(auth), e: Engine = Depends(eng)):
+    def acceptance(
+        run_id: str, body: Acceptance, owner: str = Depends(auth), e: Engine = Depends(eng)
+    ):
         r = run(e, owner, run_id)
         if r["status"] not in {"NEEDS_INPUT", "AWAITING_HANDOFF"}:
             raise HTTPException(409, "RUN_NOT_WAITING_FOR_ACCEPTANCE")
@@ -282,22 +348,38 @@ def create_app(settings: Settings | None = None, *, engine: Engine | None = None
         if target is None:
             raise HTTPException(409, "CANDIDATE_NOT_AVAILABLE")
         payload = body.model_dump()
-        payload["checks"] = [{"id": f"acceptance_{i + 1}", **check} for i, check in enumerate(payload["checks"])]
+        payload["checks"] = [
+            {"id": f"acceptance_{i + 1}", **check} for i, check in enumerate(payload["checks"])
+        ]
         return public(e.supply_input(run_id, target["id"], payload))
 
     @app.post("/runs/{run_id}/handoff")
-    def handoff(run_id: str, body: HumanHandoff, request: Request, owner: str = Depends(auth), e: Engine = Depends(eng)):
+    def handoff(
+        run_id: str,
+        body: HumanHandoff,
+        request: Request,
+        owner: str = Depends(auth),
+        e: Engine = Depends(eng),
+    ):
         r = run(e, owner, run_id)
         if r["status"] not in {"AWAITING_HANDOFF", "NEEDS_INPUT"}:
             raise HTTPException(409, "RUN_NOT_WAITING_FOR_HANDOFF")
         if r.get("final_digest") != body.final_digest:
             raise HTTPException(409, "FINAL_DIGEST_MISMATCH")
-        e.record_verification(run_id, "human_handoff", body.passed,
-                              {"actor": owner, "notes": body.evidence}, body.final_digest)
+        e.record_verification(
+            run_id,
+            "human_handoff",
+            body.passed,
+            {"actor": owner, "notes": body.evidence},
+            body.final_digest,
+        )
         if not body.passed:
             return public(e.get_run(run_id))
         from .pipeline import Pipeline
-        Pipeline(e, request.app.state.store, settings=settings).seal_handoff_bundle(run_id, body.final_digest)
+
+        Pipeline(e, request.app.state.store, settings=settings).seal_handoff_bundle(
+            run_id, body.final_digest
+        )
         return public(e.complete_handoff(run_id, body.final_digest))
 
     @app.get("/runs/{run_id}/artifacts")
@@ -306,7 +388,13 @@ def create_app(settings: Settings | None = None, *, engine: Engine | None = None
         return public(e.artifacts(run_id))
 
     @app.get("/runs/{run_id}/artifacts/{artifact_id}")
-    def artifact(run_id: str, artifact_id: str, request: Request, owner: str = Depends(auth), e: Engine = Depends(eng)):
+    def artifact(
+        run_id: str,
+        artifact_id: str,
+        request: Request,
+        owner: str = Depends(auth),
+        e: Engine = Depends(eng),
+    ):
         run(e, owner, run_id)
         a = next((a for a in e.artifacts(run_id) if a["id"] == artifact_id), None)
         if not a:
@@ -314,16 +402,24 @@ def create_app(settings: Settings | None = None, *, engine: Engine | None = None
         data = request.app.state.store.get_bytes(a["object_key"])
         if hashlib.sha256(data).hexdigest() != a["sha256"]:
             raise HTTPException(409, "ARTIFACT_INTEGRITY_ERROR")
-        return Response(data, media_type="application/zip", headers={
-            "Content-Disposition": f'attachment; filename="v2c-{artifact_id}.zip"',
-            "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff"})
+        return Response(
+            data,
+            media_type="application/zip",
+            headers={
+                "Content-Disposition": f'attachment; filename="v2c-{artifact_id}.zip"',
+                "Cache-Control": "private, no-store",
+                "X-Content-Type-Options": "nosniff",
+            },
+        )
 
     @app.middleware("http")
     async def headers(request, call_next):
         # Operator UI has no third-party assets and never injects project HTML.
         response = await call_next(request)
         response.headers["X-Content-Type-Options"] = "nosniff"
-        response.headers["Content-Security-Policy"] = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'"
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'"
+        )
         if request.url.path not in {"/", "/panel.js", "/healthz"}:
             response.headers["Cache-Control"] = "no-store"
         return response

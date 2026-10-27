@@ -1,8 +1,20 @@
 """Platform metadata and durable workflow state; input project schemas are untouched."""
+
 from __future__ import annotations
 
-from sqlalchemy import (BigInteger, Boolean, CheckConstraint, Float, ForeignKey,
-                        ForeignKeyConstraint, Integer, JSON, String, Text, UniqueConstraint)
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    CheckConstraint,
+    Float,
+    ForeignKey,
+    ForeignKeyConstraint,
+    Integer,
+    JSON,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -22,7 +34,10 @@ class Entity(Base):
     owner_id: Mapped[str] = mapped_column(String(200), index=True)
     entity_type: Mapped[str] = mapped_column(ForeignKey("entity_types.id"))
     created_at: Mapped[float] = mapped_column(Float)
-    __table_args__ = (UniqueConstraint("id", "owner_id"), UniqueConstraint("id", "entity_type", "owner_id"))
+    __table_args__ = (
+        UniqueConstraint("id", "owner_id"),
+        UniqueConstraint("id", "entity_type", "owner_id"),
+    )
 
 
 class EntityParameter(Base):
@@ -31,9 +46,14 @@ class EntityParameter(Base):
     entity_type: Mapped[str] = mapped_column(ForeignKey("entity_types.id"))
     name: Mapped[str] = mapped_column(String(100))
     value_type: Mapped[str] = mapped_column(String(20))
-    __table_args__ = (UniqueConstraint("entity_type", "name"),
-                     UniqueConstraint("id", "entity_type", "value_type"),
-                     CheckConstraint("value_type IN ('text','integer','number','boolean','json','reference')", name="parameter_type"))
+    __table_args__ = (
+        UniqueConstraint("entity_type", "name"),
+        UniqueConstraint("id", "entity_type", "value_type"),
+        CheckConstraint(
+            "value_type IN ('text','integer','number','boolean','json','reference')",
+            name="parameter_type",
+        ),
+    )
 
 
 class EntityParameterValue(Base):
@@ -52,11 +72,27 @@ class EntityParameterValue(Base):
     value_reference: Mapped[str | None] = mapped_column(String(36))
     provenance: Mapped[dict] = mapped_column(JSON, default=dict)
     __table_args__ = (
-        ForeignKeyConstraint(["entity_id", "entity_type", "owner_id"], ["entities.id", "entities.entity_type", "entities.owner_id"]),
-        ForeignKeyConstraint(["parameter_id", "entity_type", "value_type"], ["entity_parameters.id", "entity_parameters.entity_type", "entity_parameters.value_type"]),
+        ForeignKeyConstraint(
+            ["entity_id", "entity_type", "owner_id"],
+            ["entities.id", "entities.entity_type", "entities.owner_id"],
+        ),
+        ForeignKeyConstraint(
+            ["parameter_id", "entity_type", "value_type"],
+            [
+                "entity_parameters.id",
+                "entity_parameters.entity_type",
+                "entity_parameters.value_type",
+            ],
+        ),
         ForeignKeyConstraint(["value_reference", "owner_id"], ["entities.id", "entities.owner_id"]),
-        CheckConstraint("(CASE WHEN value_text IS NOT NULL THEN 1 ELSE 0 END + CASE WHEN value_integer IS NOT NULL THEN 1 ELSE 0 END + CASE WHEN value_number IS NOT NULL THEN 1 ELSE 0 END + CASE WHEN value_boolean IS NOT NULL THEN 1 ELSE 0 END + CASE WHEN value_json IS NOT NULL THEN 1 ELSE 0 END + CASE WHEN value_reference IS NOT NULL THEN 1 ELSE 0 END) = CASE WHEN is_null THEN 0 ELSE 1 END", name="value_exactly_one"),
-        CheckConstraint("is_null OR (value_type = 'text' AND value_text IS NOT NULL) OR (value_type = 'integer' AND value_integer IS NOT NULL) OR (value_type = 'number' AND value_number IS NOT NULL) OR (value_type = 'boolean' AND value_boolean IS NOT NULL) OR (value_type = 'json' AND value_json IS NOT NULL) OR (value_type = 'reference' AND value_reference IS NOT NULL)", name="value_matches_type"),
+        CheckConstraint(
+            "(CASE WHEN value_text IS NOT NULL THEN 1 ELSE 0 END + CASE WHEN value_integer IS NOT NULL THEN 1 ELSE 0 END + CASE WHEN value_number IS NOT NULL THEN 1 ELSE 0 END + CASE WHEN value_boolean IS NOT NULL THEN 1 ELSE 0 END + CASE WHEN value_json IS NOT NULL THEN 1 ELSE 0 END + CASE WHEN value_reference IS NOT NULL THEN 1 ELSE 0 END) = CASE WHEN is_null THEN 0 ELSE 1 END",
+            name="value_exactly_one",
+        ),
+        CheckConstraint(
+            "is_null OR (value_type = 'text' AND value_text IS NOT NULL) OR (value_type = 'integer' AND value_integer IS NOT NULL) OR (value_type = 'number' AND value_number IS NOT NULL) OR (value_type = 'boolean' AND value_boolean IS NOT NULL) OR (value_type = 'json' AND value_json IS NOT NULL) OR (value_type = 'reference' AND value_reference IS NOT NULL)",
+            name="value_matches_type",
+        ),
     )
 
 
@@ -90,9 +126,16 @@ class Run(Base):
     final_digest: Mapped[str | None] = mapped_column(String(64))
     created_at: Mapped[float] = mapped_column(Float)
     updated_at: Mapped[float] = mapped_column(Float)
-    __table_args__ = (UniqueConstraint("project_id", "idempotency_key"),
-                     ForeignKeyConstraint(["snapshot_id", "project_id"], ["snapshots.id", "snapshots.project_id"]),
-                     CheckConstraint("status IN ('QUEUED','RUNNING','NEEDS_INPUT','AWAITING_PLAN_APPROVAL','AWAITING_HANDOFF','READY','FAILED','CANCELLED')", name="run_status"))
+    __table_args__ = (
+        UniqueConstraint("project_id", "idempotency_key"),
+        ForeignKeyConstraint(
+            ["snapshot_id", "project_id"], ["snapshots.id", "snapshots.project_id"]
+        ),
+        CheckConstraint(
+            "status IN ('QUEUED','RUNNING','NEEDS_INPUT','AWAITING_PLAN_APPROVAL','AWAITING_HANDOFF','READY','FAILED','CANCELLED')",
+            name="run_status",
+        ),
+    )
 
 
 class Step(Base):
@@ -108,8 +151,10 @@ class Step(Base):
     generation: Mapped[int] = mapped_column(Integer, default=0)
     plan_revision: Mapped[int] = mapped_column(Integer, default=0)
     result: Mapped[dict | None] = mapped_column(JSON)
-    __table_args__ = (UniqueConstraint("run_id", "logical_key"),
-                     CheckConstraint("attempts_used >= 0 AND attempts_used <= 5", name="attempt_budget"))
+    __table_args__ = (
+        UniqueConstraint("run_id", "logical_key"),
+        CheckConstraint("attempts_used >= 0 AND attempts_used <= 5", name="attempt_budget"),
+    )
 
 
 class Attempt(Base):
@@ -127,7 +172,10 @@ class Attempt(Base):
     reconciliation_required: Mapped[bool] = mapped_column(Boolean, default=False)
     started_at: Mapped[float] = mapped_column(Float)
     finished_at: Mapped[float | None] = mapped_column(Float)
-    __table_args__ = (UniqueConstraint("step_id", "number"), CheckConstraint("number >= 1 AND number <= 5", name="attempt_number"))
+    __table_args__ = (
+        UniqueConstraint("step_id", "number"),
+        CheckConstraint("number >= 1 AND number <= 5", name="attempt_number"),
+    )
 
 
 class RuntimeLock(Base):
@@ -154,7 +202,10 @@ class Approval(Base):
     approved: Mapped[bool] = mapped_column(Boolean)
     actor: Mapped[str] = mapped_column(String(200))
     created_at: Mapped[float] = mapped_column(Float)
-    __table_args__ = (ForeignKeyConstraint(["run_id", "plan_revision"], ["plans.run_id", "plans.revision"]), UniqueConstraint("run_id", "plan_revision"))
+    __table_args__ = (
+        ForeignKeyConstraint(["run_id", "plan_revision"], ["plans.run_id", "plans.revision"]),
+        UniqueConstraint("run_id", "plan_revision"),
+    )
 
 
 class Command(Base):

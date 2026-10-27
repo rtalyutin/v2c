@@ -1,4 +1,5 @@
 """Short DB transactions. PostgreSQL row locking is the production protocol."""
+
 from contextlib import contextmanager
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import Session
@@ -13,9 +14,11 @@ def make_engine(url):
             options["poolclass"] = StaticPool
     engine = create_engine(url, **options)
     if engine.dialect.name == "sqlite":
+
         @event.listens_for(engine, "connect")
         def sqlite_foreign_keys(connection, _):
             connection.execute("PRAGMA foreign_keys = ON")
+
     return engine
 
 

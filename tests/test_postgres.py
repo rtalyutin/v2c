@@ -3,6 +3,7 @@
 CI migrates V2C_TEST_POSTGRES_URL first. No schema creation, dropping or shared
 row cleanup is performed here. Only uniquely owned fixture rows are removed.
 """
+
 from concurrent.futures import ThreadPoolExecutor
 import os
 from threading import Barrier
@@ -15,12 +16,28 @@ from sqlalchemy.orm import Session
 
 from v2c.db import transaction
 from v2c.engine import Engine
-from v2c.models import (Approval, Artifact, Attempt, Base, Command, Entity,
-                        EntityParameterValue, Event, Plan, Run, RuntimeLock,
-                        Snapshot, Step, UsageEvent, VerificationResult)
+from v2c.models import (
+    Approval,
+    Artifact,
+    Attempt,
+    Base,
+    Command,
+    Entity,
+    EntityParameterValue,
+    Event,
+    Plan,
+    Run,
+    RuntimeLock,
+    Snapshot,
+    Step,
+    UsageEvent,
+    VerificationResult,
+)
 
 URL = os.environ.get("V2C_TEST_POSTGRES_URL")
-pytestmark = pytest.mark.skipif(not URL, reason="V2C_TEST_POSTGRES_URL not supplied; PostgreSQL concurrency not exercised")
+pytestmark = pytest.mark.skipif(
+    not URL, reason="V2C_TEST_POSTGRES_URL not supplied; PostgreSQL concurrency not exercised"
+)
 
 
 def cleanup_owned(engine, owner_id):
@@ -56,49 +73,83 @@ def test_postgres_migration_schema_global_claim_and_atomic_budget():
     # Different pools/connections exercise the DB protocol rather than one
     # process mutex. This is intentionally not substituted by SQLite.
     with e1.db.connect() as c1, e2.db.connect() as c2:
-        assert c1.scalar(text("select pg_backend_pid()")) != c2.scalar(text("select pg_backend_pid()"))
+        assert c1.scalar(text("select pg_backend_pid()")) != c2.scalar(
+            text("select pg_backend_pid()")
+        )
     inspector = inspect(e1.db)
     assert set(Base.metadata.tables) <= set(inspector.get_table_names())
     for table in ("attempts", "commands", "entity_parameter_values", "verification_results"):
-        assert set(Base.metadata.tables[table].columns.keys()) <= {c["name"] for c in inspector.get_columns(table)}
+        assert set(Base.metadata.tables[table].columns.keys()) <= {
+            c["name"] for c in inspector.get_columns(table)
+        }
     with Session(e1.db) as s:
         assert s.get(RuntimeLock, 1) is not None
         # Never race with an unrelated live task if someone supplied a shared DB.
-        if s.scalar(select(func.count()).select_from(Run).where(Run.status.in_(["QUEUED", "RUNNING"]))):
+        if s.scalar(
+            select(func.count()).select_from(Run).where(Run.status.in_(["QUEUED", "RUNNING"]))
+        ):
             pytest.skip("Test database contains unrelated executable runs")
     owner = "pg-test-" + uuid.uuid4().hex
     try:
         project = e1.create_project(owner, "PostgreSQL race")
-        snapshot = e1.create_snapshot(project["id"], {"repositories": [{"name": "fixture", "revision": "abc"}]})
+        snapshot = e1.create_snapshot(
+            project["id"], {"repositories": [{"name": "fixture", "revision": "abc"}]}
+        )
         run = e1.create_run(project["id"], snapshot["id"], "race")
         numbers = []
         for expected in range(1, 6):
             barrier = Barrier(2)
+
             def concurrent_claim(pair):
                 engine, name = pair
                 barrier.wait(timeout=10)
                 return engine.claim_next(name)
+
             with ThreadPoolExecutor(2) as pool:
-                claims = list(pool.map(concurrent_claim, [(e1, "pg-worker-a"), (e2, "pg-worker-b")]))
+                claims = list(
+                    pool.map(concurrent_claim, [(e1, "pg-worker-a"), (e2, "pg-worker-b")])
+                )
             winners = [claim for claim in claims if claim is not None]
             assert len(winners) == 1
             winner = winners[0]
             assert winner["run"]["id"] == run["id"]
             numbers.append(winner["attempt"]["number"])
             assert winner["attempt"]["number"] == expected
-            e1.finish_attempt(winner["attempt"]["id"], winner["attempt"]["generation"], outcome="FAILED", reason="REGRESSION", retryable=True)
+            e1.finish_attempt(
+                winner["attempt"]["id"],
+                winner["attempt"]["generation"],
+                outcome="FAILED",
+                reason="REGRESSION",
+                retryable=True,
+            )
         assert numbers == [1, 2, 3, 4, 5]
         assert e2.claim_next("sixth") is None
         assert e1.get_run(run["id"])["reason"] == "RETRY_LIMIT_EXHAUSTED"
         with Session(e1.db) as s:
             step = s.execute(select(Step).where(Step.run_id == run["id"])).scalar_one()
             assert step.attempts_used == 5
-            assert s.scalar(select(func.count()).select_from(Attempt).where(Attempt.step_id == step.id)) == 5
+            assert (
+                s.scalar(
+                    select(func.count()).select_from(Attempt).where(Attempt.step_id == step.id)
+                )
+                == 5
+            )
         # A raw invalid value bypasses Python validators and still fails at the
         # metadata/type composite FK in PostgreSQL.
         with pytest.raises(IntegrityError):
             with transaction(e1.db) as s:
-                s.add(EntityParameterValue(entity_id=project["id"], owner_id=owner, entity_type="project", parameter_id="project.facts", value_type="text", value_text="wrong type", is_null=False, provenance={}))
+                s.add(
+                    EntityParameterValue(
+                        entity_id=project["id"],
+                        owner_id=owner,
+                        entity_type="project",
+                        parameter_id="project.facts",
+                        value_type="text",
+                        value_text="wrong type",
+                        is_null=False,
+                        provenance={},
+                    )
+                )
     finally:
         cleanup_owned(e1, owner)
         e1.db.dispose()

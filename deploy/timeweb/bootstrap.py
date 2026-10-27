@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Runs as root only inside a newly provisioned operator runner VM."""
+
 from __future__ import annotations
 
 import hashlib
@@ -24,21 +25,52 @@ def main() -> None:
     root.mkdir(mode=0o700, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="v2c-source-") as temporary:
         archive = Path(temporary) / "source.tar.gz"
-        run(["curl", "--fail", "--silent", "--show-error", "--location", "--proto", "=https", "--tlsv1.2",
-             "--connect-timeout", "10", "--max-time", "180", config["source_url"], "--output", str(archive)])
+        run(
+            [
+                "curl",
+                "--fail",
+                "--silent",
+                "--show-error",
+                "--location",
+                "--proto",
+                "=https",
+                "--tlsv1.2",
+                "--connect-timeout",
+                "10",
+                "--max-time",
+                "180",
+                config["source_url"],
+                "--output",
+                str(archive),
+            ]
+        )
         if hashlib.sha256(archive.read_bytes()).hexdigest() != config["source_sha256"]:
             raise ValueError("source checksum differs")
         extracted = Path(temporary) / "source"
         extracted.mkdir()
         with tarfile.open(archive) as source:
             source.extractall(extracted, filter="data")
-        candidates = [p.parent for p in extracted.rglob("pyproject.toml") if p.parent.joinpath("requirements.lock").is_file()]
+        candidates = [
+            p.parent
+            for p in extracted.rglob("pyproject.toml")
+            if p.parent.joinpath("requirements.lock").is_file()
+        ]
         if len(candidates) != 1:
             raise ValueError("source must contain one v2c package")
         # Source is operator-pinned and checksum-verified before any build runs.
         run(["python3", "-m", "venv", str(root / "venv")])
         python = str(root / "venv/bin/python")
-        run([python, "-m", "pip", "install", "--disable-pip-version-check", "-r", str(candidates[0] / "requirements.lock")])
+        run(
+            [
+                python,
+                "-m",
+                "pip",
+                "install",
+                "--disable-pip-version-check",
+                "-r",
+                str(candidates[0] / "requirements.lock"),
+            ]
+        )
         run([python, "-m", "pip", "install", "--no-deps", str(candidates[0])])
     python = str(root / "venv/bin/python")
     # Confirms that the installed source and operator settings agree; no caller
