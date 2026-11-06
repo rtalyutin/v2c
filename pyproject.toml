@@ -50,13 +50,13 @@ strict = true
 files = [
   "src/v2c/diagnostics.py", "src/v2c/engine.py", "src/v2c/db.py", "src/v2c/worker.py",
   "src/v2c/pipeline.py", "src/v2c/config.py", "src/v2c/contracts", "src/v2c/application",
-  "src/v2c/adapters/runner.py",
+  "src/v2c/adapters/runner.py", "src/v2c/adapters/model.py",
   "src/v2c/workflow", "src/v2c/persistence", "src/v2c/orchestration",
   "src/v2c/runner", "src/v2c/providers", "src/v2c/runner_service.py",
-  "src/v2c/timeweb_gateway.py", "scripts/export_openapi.py",
+  "src/v2c/timeweb_gateway.py", "scripts/export_openapi.py", "scripts/check_conformance.py", "tests/solid_model.py",
 ]
 # Retained legacy files outside strict checking: api.py (transport glue),
-# adapters/model.py (model wire client), intake.py, delivery.py, storage.py,
+# intake.py, delivery.py, storage.py,
 # model_probe.py and models.py.
 # Their imported types remain visible through follow_imports=silent. Expand
 # this list's coverage when touching their interfaces; new extracted owners

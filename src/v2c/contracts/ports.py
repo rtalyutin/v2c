@@ -4,16 +4,23 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Protocol
+from typing import Protocol
 
-from .runner import AuthorizeReply, PrepareReply
-from .workflow import ExecutionLimits
-
-if TYPE_CHECKING:
-    from ..adapters.runner import CommandRequest, CommandResult, PrepareRequest, VMAllocation
+from .runner import (
+    AuthorizeReply,
+    CommandRequest,
+    CommandResult,
+    PrepareReply,
+    PrepareRequest,
+    VMAllocation,
+)
+from .workflow import ExecutionLimits, PendingExecution, RunClaim, RunRecord
 
 
 class RunnerPort(Protocol):
+    @property
+    def is_test(self) -> bool: ...
+
     async def prepare(self, request: PrepareRequest) -> PrepareReply: ...
     async def authorize(
         self, workspace_id: str, attempt_id: str, generation: int
@@ -48,3 +55,22 @@ class PipelineSettings(Protocol):
     def work_root(self) -> Path: ...
     @property
     def execution_limits(self) -> ExecutionLimits: ...
+
+
+class CleanupPort(Protocol):
+    def allocation(self, attempt_id: str) -> VMAllocation | None: ...
+    async def destroy(self, claim: RunClaim, allocation: VMAllocation) -> None: ...
+    async def cancel_run(self, run_id: str) -> bool: ...
+
+
+class ImportSettings(Protocol):
+    @property
+    def work_root(self) -> Path: ...
+    @property
+    def max_upload_bytes(self) -> int: ...
+
+
+class PipelineRuntime(Protocol):
+    async def execute(self, claim: RunClaim) -> RunRecord | PendingExecution: ...
+    async def cancel_run(self, run_id: str) -> bool: ...
+    async def reconcile(self, claim: RunClaim) -> bool: ...

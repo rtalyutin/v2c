@@ -14,6 +14,7 @@ from pathlib import Path
 import httpx
 import pytest
 from fastapi.testclient import TestClient
+from model_support import FixtureModelContract
 
 from v2c.adapters.model import EnvSecretResolver, ModelResult, ModelUsage, OpenAICompatibleModel
 from v2c.config import Settings, build_model
@@ -109,7 +110,7 @@ async def test_successful_test_model_cannot_qualify_real_provider_generation(mon
     settings = free_settings(monkeypatch)
     monkeypatch.setenv("GROQ_API_KEY", "synthetic-not-a-provider-key")
 
-    class SyntheticModel:
+    class SyntheticModel(FixtureModelContract):
         is_test = True
         profile = build_model(settings).profile
 

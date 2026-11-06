@@ -1,0 +1,11 @@
+Processing /tmp/v2c-solid-final-wheel/v2c-0.1.0-py3-none-any.whl
+Installing collected packages: v2c
+Successfully installed v2c-0.1.0
+
+[notice] A new release of pip is available: 25.0.1 -> 26.3
+[notice] To update, run: /workspace/scratch/5db56f7dacf5/v2c/.venv/bin/python -m pip install --upgrade pip
+Traceback (most recent call last):
+  File "<stdin>", line 14, in <module>
+AssertionError: web/modules/render.js
+Corrected probe: render.js lives in web/, not web/modules/. No code change.
+Installed-wheel contracts, core, legacy entrypoint imports and all web asset bytes: PASS

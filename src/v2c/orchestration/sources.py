@@ -7,7 +7,9 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Literal, cast, overload
 
-from ..contracts.ports import PipelineSettings, RunnerPort
+from ..contracts.control import SourceControl
+from ..contracts.ports import RunnerPort
+from ..contracts.storage import ArtifactStore
 from ..contracts.workflow import (
     ArtifactPointer,
     BaselineResult,
@@ -23,10 +25,9 @@ from ..contracts.workflow import (
     VerifyResult,
 )
 from ..diagnostics import annotate_exception
-from ..engine import Engine
 from ..intake import Snapshot
-from ..storage import ArtifactStore
 from .archive import archive_context, assert_source_unchanged
+from .blocking import run_blocking
 from .common import InputRequired, PipelineLimits, stable_id
 from .journal import OperationJournal
 
@@ -41,14 +42,14 @@ def read_artifact(store: ArtifactStore, ref: ArtifactPointer) -> bytes:
 class SourceArtifacts:
     def __init__(
         self,
-        engine: Engine,
+        engine: SourceControl,
         store: ArtifactStore,
         journal: OperationJournal,
         limits: PipelineLimits,
-        settings: PipelineSettings | None,
+        work_root: Path | None,
     ):
         self.engine, self.store, self.journal = engine, store, journal
-        self.limits, self.settings = limits, settings
+        self.limits, self.work_root = limits, work_root
 
     def source(self, claim: RunClaim) -> Snapshot:
         manifest = self.engine.get_snapshot(claim["run"]["snapshot_id"])["manifest"]
@@ -70,7 +71,7 @@ class SourceArtifacts:
                 for name, ref in manifest["source_git_bundles"].items()
             }
             destination = (
-                Path(getattr(self.settings, "work_root", Path(root).parent))
+                (self.work_root if self.work_root is not None else Path(root).parent)
                 / "restored-sources"
                 / claim["run"]["snapshot_id"]
             )
@@ -158,13 +159,19 @@ class SourceArtifacts:
         )
         if row["status"] == "SUCCEEDED":
             return cast(CheckpointRef, row["result"])
-        archive = assert_source_unchanged(expected_source, await runner.checkpoint(workspace))
+        archive = await run_blocking(
+            assert_source_unchanged, expected_source, await runner.checkpoint(workspace)
+        )
         # Exported files remain untrusted. Full safe import runs again before
         # packaging; this bounded context check detects obvious secret leakage.
-        archive_context(archive, max_bytes=self.limits.model_max_input_bytes // 2)
+        await run_blocking(
+            archive_context, archive, max_bytes=self.limits.model_max_input_bytes // 2
+        )
         sha = hashlib.sha256(archive).hexdigest()
-        ref = self.store.put_bytes(f"runs/{claim['run']['id']}/checkpoints/{sha}.zip", archive)
-        source = self.source(claim)
+        ref = await run_blocking(
+            self.store.put_bytes, f"runs/{claim['run']['id']}/checkpoints/{sha}.zip", archive
+        )
+        source = await run_blocking(self.source, claim)
         manifest = {
             "repositories": [r.name for r in source.repositories],
             "plan_revision": claim["run"]["plan_revision"],

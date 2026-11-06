@@ -11,7 +11,7 @@ from typing import Any
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
 
-from ..adapters.runner import (
+from ..contracts.runner import (
     AuthorizationRequest,
     CommandRequest,
     CommandResult,

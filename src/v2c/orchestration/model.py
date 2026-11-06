@@ -4,16 +4,18 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 from typing import Any, cast
 
 from pydantic import ValidationError
 
-from ..adapters.model import AdapterError, ErrorCategory, ModelPort, ModelRequest
+from ..contracts.control import ModelControl
+from ..contracts.model import AdapterError, ErrorCategory, ModelPort, ModelRequest
+from ..contracts.records import digest
 from ..contracts.workflow import JsonObject, RunClaim
 from ..diagnostics import annotate_exception
-from ..engine import DomainError, Engine, digest
+from ..workflow.errors import DomainError
 from .archive import _SECRET
+from .blocking import run_blocking
 from .common import InputRequired, PipelineLimits, StepFailure, json_bytes, stable_id
 from .journal import OperationJournal
 from .schemas import DTO
@@ -22,7 +24,7 @@ from .schemas import DTO
 class ModelOperations:
     def __init__(
         self,
-        engine: Engine,
+        engine: ModelControl,
         journal: OperationJournal,
         model: ModelPort | None,
         limits: PipelineLimits,
@@ -33,16 +35,13 @@ class ModelOperations:
         """Known absent credentials cannot justify a VM allocation or API call."""
         if self.model is None:
             raise InputRequired("MODEL_PROFILE_REQUIRED")
-        if getattr(self.model, "is_test", False):
-            return
-        profile = getattr(self.model, "profile", None)
-        reference = getattr(profile, "secret_ref", "")
-        if reference.startswith("env:"):
-            name = reference[4:]
-            if not name or not name.replace("_", "").isalnum():
-                raise InputRequired("MODEL_SECRET_REFERENCE_INVALID")
-            if not os.environ.get(name):
-                raise InputRequired("MODEL_CREDENTIAL_REQUIRED", {"key_env": name})
+        admission = self.model.readiness()
+        if not admission.ready:
+            raise InputRequired(admission.reason, admission.details)
+
+    @property
+    def test_double(self) -> bool:
+        return self.model.describe().test_double if self.model is not None else False
 
     def fit_context(
         self, request_id: str, task: str, context: JsonObject, schema: JsonObject
@@ -52,12 +51,10 @@ class ModelOperations:
         Work/task/recipe semantics are retained. Partial source and inventory
         coverage is explicit and fingerprinted; there is no invisible text cut.
         """
-        serializer = getattr(self.model, "request_body", None)
-        limit = getattr(
-            getattr(self.model, "profile", None),
-            "max_input_bytes",
-            self.limits.model_max_input_bytes,
-        )
+        if self.model is None:
+            raise InputRequired("MODEL_PROFILE_REQUIRED")
+        model = self.model
+        limit = model.describe().max_input_bytes
 
         def size(value: JsonObject) -> int:
             request = ModelRequest(
@@ -67,7 +64,7 @@ class ModelOperations:
                 response_schema=schema,
                 required_capabilities=frozenset({"text", "structured"}),
             )
-            return len(serializer(request)) if serializer else len(request.context.encode())
+            return model.prepare(request).size_bytes
 
         original_digest = digest(context)
         if size(context) <= limit:
@@ -228,30 +225,17 @@ class ModelOperations:
         if _SECRET.search(json_bytes(context).decode()):
             raise InputRequired("MODEL_CONTEXT_SECRET_REVIEW_REQUIRED")
         try:
-            context, context_selection = self.fit_context(
-                request_id, task, context, schema.model_json_schema()
+            context, context_selection = await run_blocking(
+                self.fit_context, request_id, task, context, schema.model_json_schema()
             )
         except AdapterError as error:
             # Pure serialization/capability rejection happens before a provider
             # dispatch and must not leave an unresumable ACTIVE attempt.
             raise InputRequired(error.category.value) from error
         context_json = json_bytes(context).decode()
-        profile = getattr(self.model, "profile", None)
-        profile_version = getattr(
-            profile, "version", "test" if getattr(self.model, "is_test", False) else "unknown"
-        )
-        if profile is not None and hasattr(profile, "model_dump"):
-            profile_manifest = profile.model_dump(mode="json")
-            if "capabilities" in profile_manifest:
-                profile_manifest["capabilities"] = sorted(profile_manifest["capabilities"])
-        elif getattr(self.model, "is_test", False):
-            profile_manifest = {
-                "version": "test",
-                "adapter_type": "test-double",
-                "implementation": type(self.model).__module__ + "." + type(self.model).__qualname__,
-            }
-        else:
-            raise InputRequired("MODEL_PROFILE_REQUIRED")
+        description = self.model.describe()
+        profile_version = description.version
+        profile_manifest = description.manifest
         try:
             profile_manifest = self.engine.bind_model_profile(
                 claim["run"]["id"], profile_manifest, **self.journal.fence(claim)
@@ -301,11 +285,7 @@ class ModelOperations:
             )
             # Cost is an observed fact even when response validation, cancellation
             # or lease fencing later rejects publication of its proposal.
-            usage: JsonObject = (
-                value.usage.model_dump()
-                if hasattr(value.usage, "model_dump")
-                else cast(JsonObject, value.usage)
-            )
+            usage: JsonObject = value.usage.model_dump()
             self.engine.record_usage(
                 claim["run"]["id"],
                 request_id,
@@ -319,7 +299,7 @@ class ModelOperations:
                         usage.get(k) is None
                         for k in ("input_tokens", "output_tokens", "total_tokens")
                     ),
-                    "test_adapter": bool(getattr(self.model, "is_test", False)),
+                    "test_adapter": description.test_double,
                 },
                 claim["attempt"]["id"],
             )

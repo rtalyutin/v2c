@@ -5,13 +5,15 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import cast
 
+from ..contracts.control import JournalControl
+from ..contracts.records import digest
 from ..contracts.workflow import AttemptFence, CommandRecord, JsonObject, RunClaim
-from ..engine import DomainError, Engine, digest
+from ..workflow.errors import DomainError
 from .common import InputRequired, PipelineLimits, RunCancelled, stable_id
 
 
 class OperationJournal:
-    def __init__(self, engine: Engine, limits: PipelineLimits):
+    def __init__(self, engine: JournalControl, limits: PipelineLimits):
         self.engine, self.limits = engine, limits
 
     def guard(self, claim: RunClaim, *, cleanup: bool = False) -> None:

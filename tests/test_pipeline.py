@@ -10,6 +10,7 @@ from types import SimpleNamespace
 
 import httpx
 import pytest
+from model_support import FixtureModelContract
 from pydantic import ValidationError
 
 from v2c.adapters.model import (
@@ -114,7 +115,7 @@ def patch(before, after):
     }
 
 
-class FixtureModel:
+class FixtureModel(FixtureModelContract):
     is_test = True
 
     def __init__(self):
@@ -144,9 +145,20 @@ class FixtureRunner:
         self.commands = {}
         self.executions = 0
         self.lost_response = lost_response
+        self.authorizations = {}
+        self.preparations = {}
 
     async def prepare(self, request):
-        self.files = read_zip(base64.b64decode(request.archive_b64))
+        from v2c.contracts.runner import RunnerError
+
+        identity = (request.archive_sha256, request.input_manifest)
+        previous = self.preparations.get(request.workspace_id)
+        if previous is not None and previous != identity:
+            raise RunnerError("CONFLICT", "fixture workspace input conflict")
+        await self.authorize(request.workspace_id, request.attempt_id, request.generation)
+        if previous is None:
+            self.files = read_zip(base64.b64decode(request.archive_b64))
+            self.preparations[request.workspace_id] = identity
         return {
             "workspace_id": request.workspace_id,
             "state": "READY",
@@ -154,13 +166,29 @@ class FixtureRunner:
         }
 
     async def authorize(self, workspace_id, attempt_id, generation):
+        from v2c.contracts.runner import RunnerError
+
+        previous = self.authorizations.get(workspace_id)
+        if previous and (
+            generation < previous[1] or (generation == previous[1] and attempt_id != previous[0])
+        ):
+            raise RunnerError("STALE_GENERATION", "fixture fence rejected")
+        self.authorizations[workspace_id] = (attempt_id, generation)
         return {"workspace_id": workspace_id, "generation": generation}
 
     async def execute(self, request):
         from v2c.adapters.runner import RunnerError
 
         if request.command_id in self.commands:
-            return self.commands[request.command_id]
+            result = self.commands[request.command_id]
+            if result.request_hash != request.content_hash():
+                raise RunnerError("CONFLICT", "fixture identity conflict")
+            return result
+        if self.authorizations.get(request.workspace_id) != (
+            request.attempt_id,
+            request.generation,
+        ):
+            raise RunnerError("STALE_GENERATION", "fixture fence rejected")
         self.executions += 1
         code = 0
         if request.argv[0] == "python3":
@@ -197,10 +225,14 @@ class FixtureRunner:
         return result
 
     async def status(self, command_id):
+        from v2c.contracts.runner import RunnerError
+
+        if command_id not in self.commands:
+            raise RunnerError("NOT_FOUND", "fixture command was not admitted")
         return self.commands[command_id]
 
     async def cancel(self, command_id):
-        return self.commands[command_id]
+        return await self.status(command_id)
 
     async def checkpoint(self, workspace_id):
         return zip_bytes(self.files)
@@ -212,8 +244,14 @@ class FixtureVMs:
         self.runners = {}
         self.purposes = []
         self.destroyed = []
+        self.intents = {}
 
     async def create(self, allocation_id, purpose):
+        from v2c.contracts.runner import RunnerError
+
+        if allocation_id in self.intents and self.intents[allocation_id] != purpose:
+            raise RunnerError("CONFLICT", "fixture allocation conflict")
+        self.intents[allocation_id] = purpose
         if allocation_id not in self.allocations:
             value = VMAllocation(
                 vm_id=allocation_id,

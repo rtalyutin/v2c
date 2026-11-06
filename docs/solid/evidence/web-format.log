@@ -1,0 +1,7 @@
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
+
+> check:web
+> prettier --check src/v2c/web tests/browser playwright.config.js package.json
+
+Checking formatting...
+All matched files use Prettier code style!

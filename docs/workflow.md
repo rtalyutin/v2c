@@ -9,7 +9,7 @@ ports only outside a transaction. [Architecture](architecture.md) names owners.
 
 `RunStatus`, `StepStatus`, `AttemptStatus` and `CommandStatus` are distinct in
 [`workflow/states.py`](../src/v2c/workflow/states.py). Runner wire states are
-defined by `adapters/runner.py`; their terminal values do not include every
+defined by `contracts/runner.py`; their terminal values do not include every
 control-plane observation. In particular STOPPED/DESTROYED must not be copied
 into the runner wire schema just to share an enum.
 
@@ -199,3 +199,25 @@ for acceptance of the v2c refactor itself (a separate exercise).
 
 Every protocol change must update these sequences and affected test expectations
 through an explicit behavior decision. A file split by itself has no contract delta.
+
+## SOLID ownership and input delta
+
+Atomic claim/heartbeat/finish/recovery/cancel belong to LeaseStore; run/input and
+profile binding to RunStore; exact revision decisions to PlanStore. All share one
+ControlDatabase. Engine retains the existing public signatures.
+
+StageExecutor applies StageRegistry admission and cleanup without stage-name
+switches. The seven released admission policies remain unchanged (package needs
+no model; the other six require model readiness). StageHandlers retains durable
+step creation order and logical keys.
+
+Acceptance argv/cwd is validated before supply_input: invalid cwd returns 422
+without publishing QUEUED input. Previously saved invalid input becomes
+NEEDS_INPUT / INVALID_STAGE_INPUT only when no commands remain unresolved.
+Unknown effects retain RUNNING, the slot and a fenced EXECUTION_PENDING event.
+Readback/confirmed stop must precede release; validation does not grant a retry.
+
+Blocking source/archive/store/package operations run outside the event loop.
+Cancellation waits for the current thread; the original DB generation fence still
+guards publication. Immutable unreferenced object bytes are not a completed run.
+See [ports](solid/ports.md) and [verification](solid/verification.md).

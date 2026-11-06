@@ -1,0 +1,12 @@
+Processing /workspace/scratch/5db56f7dacf5/v2c
+  Preparing metadata (pyproject.toml): started
+  Preparing metadata (pyproject.toml): finished with status 'done'
+Building wheels for collected packages: v2c
+  Building wheel for v2c (pyproject.toml): started
+  Building wheel for v2c (pyproject.toml): finished with status 'done'
+  Created wheel for v2c: filename=v2c-0.1.0-py3-none-any.whl size=161164 sha256=7f50a30dcf41ac0f43aa0b6f6d4ee4fa498b67a0c289ca50e041a135260efa33
+  Stored in directory: /tmp/pip-ephem-wheel-cache-na5sdqzb/wheels/bf/6b/c2/814ca0f7c3abfcbf161184f4276b6f9e90bb1035ed9ba10d66
+Successfully built v2c
+
+[notice] A new release of pip is available: 25.0.1 -> 26.3
+[notice] To update, run: /workspace/scratch/5db56f7dacf5/v2c/.venv/bin/python -m pip install --upgrade pip

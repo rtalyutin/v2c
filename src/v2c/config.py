@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, TypedDict
 
+from .contracts.source import GitFetcher
 from .contracts.workflow import ExecutionLimits
 
 if TYPE_CHECKING:
@@ -288,6 +289,7 @@ def build_model(settings: Settings) -> OpenAICompatibleModel | None:
 def build_pipeline(settings: Settings, engine: Engine) -> Pipeline:
     """Wire configured ports; absent integrations remain explicit NEEDS_INPUT."""
     from .adapters.runner import HTTPVMProvider, MTLSConfig, RunnerClient
+    from .composition import build_components
     from .pipeline import Pipeline
 
     model = build_model(settings)
@@ -331,7 +333,7 @@ def build_pipeline(settings: Settings, engine: Engine) -> Pipeline:
 
         factory = runner_factory
 
-    return Pipeline(
+    components = build_components(
         engine,
         build_store(settings),
         model=model,
@@ -339,3 +341,11 @@ def build_pipeline(settings: Settings, engine: Engine) -> Pipeline:
         vm_provider=provider,
         runner_factory=factory,
     )
+    return Pipeline(components=components)
+
+
+def build_git_fetcher(settings: Settings) -> GitFetcher:
+    from .adapters.model import EnvSecretResolver
+    from .intake import HTTPSGitFetcher
+
+    return HTTPSGitFetcher(settings.git_allowed_hosts, EnvSecretResolver())

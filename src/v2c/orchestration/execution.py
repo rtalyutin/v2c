@@ -7,11 +7,11 @@ import base64
 import hashlib
 import re
 import time
-from collections.abc import Callable
 from typing import cast
 
-from ..adapters.runner import CommandRequest, PrepareRequest, RunnerError, VMAllocation
-from ..contracts.ports import PipelineSettings, RunnerFactory, RunnerPort, VMProviderPort
+from ..contracts.control import ExecutionControl
+from ..contracts.ports import RunnerFactory, RunnerPort, VMProviderPort
+from ..contracts.runner import CommandRequest, PrepareRequest, RunnerError, VMAllocation
 from ..contracts.workflow import (
     CheckOutcome,
     CommandOutcome,
@@ -20,7 +20,6 @@ from ..contracts.workflow import (
     RunClaim,
 )
 from ..diagnostics import annotate_exception
-from ..engine import Engine
 from .common import InputRequired, PipelineLimits, StepFailure, stable_id
 from .journal import OperationJournal
 from .schemas import RecipeCommand
@@ -29,23 +28,24 @@ from .schemas import RecipeCommand
 class ExecutionOperations:
     def __init__(
         self,
-        engine: Engine,
+        engine: ExecutionControl,
         journal: OperationJournal,
         limits: PipelineLimits,
-        settings: PipelineSettings | None,
-        ensure_model_ready: Callable[[], None],
+        default_profile: ExecutionLimits | None,
         provider: VMProviderPort | None,
         runner_factory: RunnerFactory | None,
     ):
         self.engine, self.journal, self.limits = engine, journal, limits
-        self.settings, self.ensure_model_ready = settings, ensure_model_ready
+        self.default_profile = default_profile
         self.vm_provider, self.runner_factory = provider, runner_factory
         self.active: dict[str, tuple[VMAllocation, RunnerPort | None]] = {}
 
+    def allocation(self, attempt_id: str) -> VMAllocation | None:
+        active = self.active.get(attempt_id)
+        return active[0] if active is not None else None
+
     def profile(self, claim: RunClaim) -> ExecutionLimits:
-        profile = claim["run"]["limits"].get("execution_limits") or getattr(
-            self.settings, "execution_limits", None
-        )
+        profile = claim["run"]["limits"].get("execution_limits") or self.default_profile
         required = {"cpus", "memory_mb", "pids", "disk_mb", "max_output_bytes", "network", "image"}
         if (
             not isinstance(profile, dict)
@@ -66,7 +66,7 @@ class ExecutionOperations:
             raise InputRequired("EXECUTION_IMAGE_DIGEST_REQUIRED")
         if self.vm_provider is None or self.runner_factory is None:
             raise InputRequired("VM_PROVIDER_REQUIRED")
-        return cast(ExecutionLimits, profile)
+        return profile
 
     async def allocate(self, claim: RunClaim, purpose: str) -> tuple[VMAllocation, RunnerPort]:
         try:
@@ -76,7 +76,6 @@ class ExecutionOperations:
             raise
 
     async def _allocate(self, claim: RunClaim, purpose: str) -> tuple[VMAllocation, RunnerPort]:
-        self.ensure_model_ready()
         profile = self.profile(claim)
         assert self.vm_provider is not None and self.runner_factory is not None
         allocation_id = stable_id(claim["attempt"]["id"], purpose)
@@ -91,7 +90,7 @@ class ExecutionOperations:
             },
         )
         if row["status"] == "SUCCEEDED":
-            from ..adapters.runner import VMAllocation
+            from ..contracts.runner import VMAllocation
 
             allocation = VMAllocation.model_validate(row["result"])
         else:
@@ -428,7 +427,7 @@ class ExecutionOperations:
                 claim["attempt"]["id"], claim["attempt"]["generation"]
             )
             return True
-        from ..adapters.runner import VMAllocation
+        from ..contracts.runner import VMAllocation
 
         assert self.vm_provider is not None and self.runner_factory is not None
         for row in allocations:

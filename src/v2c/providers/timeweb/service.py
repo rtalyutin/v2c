@@ -12,7 +12,7 @@ import uuid
 from typing import Any, cast
 from urllib.parse import urlsplit
 
-from ...adapters.runner import VMAllocation
+from ...contracts.runner import VMAllocation
 from .client import RunnerProbe, TimewebClient
 from .contracts import AllocateRequest, GatewayError, GatewaySettings
 from .journal import GatewayJournal

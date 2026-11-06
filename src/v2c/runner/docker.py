@@ -11,7 +11,7 @@ import time
 from pathlib import Path, PurePosixPath
 from typing import Any, Literal, Protocol, cast
 
-from ..adapters.runner import CommandRequest, CommandResult, RunnerError
+from ..contracts.runner import CommandRequest, CommandResult, RunnerError
 from .archive import _path
 from .journal import Journal
 from .settings import RunnerSettings

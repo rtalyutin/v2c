@@ -7,6 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
+from model_support import FixtureModelContract
 from pydantic import BaseModel
 
 from v2c.adapters.model import ModelResult, ModelUsage
@@ -99,7 +100,7 @@ async def test_paid_model_response_keeps_usage_before_rejection(state, response_
     e, _, _, r = state
     claim = e.claim_next("qa-worker", lease_seconds=120)
 
-    class Model:
+    class Model(FixtureModelContract):
         is_test = True
 
         async def generate(self, request):
@@ -130,7 +131,7 @@ async def test_model_only_worker_crash_pauses_unknown_without_redispatch(state):
     e.clock = lambda: now
     claim = e.claim_next("vanished-worker", lease_seconds=10)
 
-    class CrashedModel:
+    class CrashedModel(FixtureModelContract):
         is_test = True
         calls = 0
 

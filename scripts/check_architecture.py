@@ -1,6 +1,6 @@
 """Enforce runtime import directions and reject module cycles.
 
-TYPE_CHECKING imports are annotations, not runtime coupling. Compatibility
+Runtime and TYPE_CHECKING imports both obey layer directions. Compatibility
 facades are ordinary modules and receive no exemption from the cycle check.
 """
 
@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import sys
 from importlib.util import resolve_name
 from pathlib import Path
 
@@ -19,18 +20,8 @@ def within(name: str, package: str) -> bool:
 
 
 def runtime_nodes(node: ast.AST):
-    yield node
-    for child in ast.iter_child_nodes(node):
-        if isinstance(child, ast.If) and (
-            isinstance(child.test, ast.Name)
-            and child.test.id == "TYPE_CHECKING"
-            or isinstance(child.test, ast.Attribute)
-            and child.test.attr == "TYPE_CHECKING"
-        ):
-            for alternative in child.orelse:
-                yield from runtime_nodes(alternative)
-        else:
-            yield from runtime_nodes(child)
+    # Type dependencies constrain extension just as runtime dependencies do.
+    yield from ast.walk(node)
 
 
 def check(root: Path) -> list[str]:
@@ -50,6 +41,7 @@ def check(root: Path) -> list[str]:
         "v2c.orchestration",
         "v2c.application",
         "v2c.config",
+        "v2c.composition",
     )
     for name, path in modules.items():
         package = name if path.stem == "__init__" else name.rpartition(".")[0]
@@ -66,6 +58,20 @@ def check(root: Path) -> list[str]:
                 targets = [base, *(base + "." + alias.name for alias in node.names)]
             for target in targets:
                 if not target.startswith("v2c"):
+                    library = target.partition(".")[0]
+                    forbidden_external = (
+                        (within(name, "v2c.workflow") and library not in sys.stdlib_module_names)
+                        or (
+                            within(name, "v2c.contracts")
+                            and library not in sys.stdlib_module_names | {"pydantic"}
+                        )
+                        or (
+                            (within(name, "v2c.orchestration") or within(name, "v2c.application"))
+                            and library in {"httpx", "boto3", "botocore", "sqlalchemy"}
+                        )
+                    )
+                    if forbidden_external:
+                        failures.append(f"Forbidden dependency: {name} -> {target}")
                     continue
                 forbidden = False
                 if within(name, "v2c.contracts"):
@@ -73,6 +79,20 @@ def check(root: Path) -> list[str]:
                 elif within(name, "v2c.workflow"):
                     forbidden = not any(
                         within(target, p) for p in ("v2c.workflow", "v2c.contracts")
+                    )
+                elif within(name, "v2c.orchestration") or within(name, "v2c.application"):
+                    forbidden = any(
+                        within(target, p)
+                        for p in (
+                            "v2c.engine",
+                            "v2c.pipeline",
+                            "v2c.config",
+                            "v2c.composition",
+                            "v2c.adapters",
+                            "v2c.persistence",
+                            "v2c.models",
+                            "v2c.db",
+                        )
                     )
                 elif within(name, "v2c.persistence"):
                     forbidden = target.startswith(

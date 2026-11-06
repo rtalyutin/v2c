@@ -13,9 +13,10 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, Response
 from sqlalchemy import text
 
+from .application.decisions import decide_plan, supply_acceptance
 from .application.handoff import record_human_handoff
 from .application.imports import ImportRejected, import_snapshot
-from .config import Settings, build_store
+from .config import Settings, build_git_fetcher, build_store
 from .contracts.operator import (
     Acceptance,
     ArtifactResponse,
@@ -255,6 +256,7 @@ def create_app(
                 request.stream(),
                 repositories_json=request.headers.get("content-type", "").split(";")[0]
                 == "application/json",
+                fetcher=build_git_fetcher(settings),
             )
         except ImportRejected as error:
             raise HTTPException(error.status_code, error.code) from error
@@ -331,12 +333,8 @@ def create_app(
         responses=error_responses(401, 404, 409, 422),
     )
     def decide(run_id: str, body: Decision, owner: str = Depends(auth), e: Engine = Depends(eng)):
-        r = run(e, owner, run_id)
-        return public(
-            e.decide_plan(
-                run_id, r["project_id"], body.snapshot_id, body.plan_revision, body.approved, owner
-            )
-        )
+        run(e, owner, run_id)
+        return public(decide_plan(e, run_id, body, owner))
 
     @app.post(
         "/runs/{run_id}/cancel",
@@ -366,18 +364,8 @@ def create_app(
     def acceptance(
         run_id: str, body: Acceptance, owner: str = Depends(auth), e: Engine = Depends(eng)
     ):
-        r = run(e, owner, run_id)
-        if r["status"] not in {"NEEDS_INPUT", "AWAITING_HANDOFF"}:
-            raise HTTPException(409, "RUN_NOT_WAITING_FOR_ACCEPTANCE")
-        steps = e.list_steps(run_id)
-        target = next((s for s in steps if s["kind"] == "ai_handoff"), None)
-        if target is None:
-            raise HTTPException(409, "CANDIDATE_NOT_AVAILABLE")
-        payload = body.model_dump()
-        payload["checks"] = [
-            {"id": f"acceptance_{i + 1}", **check} for i, check in enumerate(payload["checks"])
-        ]
-        return public(e.supply_input(run_id, target["id"], payload))
+        run(e, owner, run_id)
+        return public(supply_acceptance(e, run_id, body))
 
     @app.post(
         "/runs/{run_id}/handoff",
