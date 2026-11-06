@@ -430,3 +430,18 @@ def test_released_stage_admission_policies_are_preserved(setup):
         "package": (),
         "ai_handoff": ("model",),
     }
+
+
+def test_model_readiness_uses_injected_resolver_without_environment_precondition(monkeypatch):
+    monkeypatch.delenv("TEST_MODEL_KEY", raising=False)
+    seen = []
+
+    def resolve(reference):
+        seen.append(reference)
+        return "synthetic-local-credential"
+
+    model = OpenAICompatibleModel(profile(), resolve)
+    assert model.readiness().ready
+    assert seen == ["env:TEST_MODEL_KEY"]
+    assert "synthetic-local-credential" not in json.dumps(model.describe().manifest)
+    assert not OpenAICompatibleModel(profile(), lambda _: "").readiness().ready

@@ -146,10 +146,19 @@ class FixtureRunner:
         self.executions = 0
         self.lost_response = lost_response
         self.authorizations = {}
+        self.preparations = {}
 
     async def prepare(self, request):
+        from v2c.contracts.runner import RunnerError
+
+        identity = (request.archive_sha256, request.input_manifest)
+        previous = self.preparations.get(request.workspace_id)
+        if previous is not None and previous != identity:
+            raise RunnerError("CONFLICT", "fixture workspace input conflict")
         await self.authorize(request.workspace_id, request.attempt_id, request.generation)
-        self.files = read_zip(base64.b64decode(request.archive_b64))
+        if previous is None:
+            self.files = read_zip(base64.b64decode(request.archive_b64))
+            self.preparations[request.workspace_id] = identity
         return {
             "workspace_id": request.workspace_id,
             "state": "READY",

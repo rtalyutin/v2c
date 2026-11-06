@@ -157,12 +157,25 @@ class OpenAICompatibleModel:
 
     def readiness(self) -> ModelReadiness:
         reference = self.profile.secret_ref
+        details: dict[str, Any] = {}
         if reference.startswith("env:"):
             name = reference[4:]
             if not name or not name.replace("_", "").isalnum():
                 return ModelReadiness(False, "MODEL_SECRET_REFERENCE_INVALID")
-            if not os.environ.get(name):
-                return ModelReadiness(False, "MODEL_CREDENTIAL_REQUIRED", {"key_env": name})
+            details = {"key_env": name}
+        try:
+            # Use the injected resolver, exactly as dispatch does. A custom local
+            # resolver must not acquire an additional os.environ precondition.
+            secret = self.secret_resolver(reference)
+        except AdapterError as error:
+            reason = (
+                "MODEL_CREDENTIAL_REQUIRED"
+                if error.category == ErrorCategory.INVALID_CONFIG
+                else error.category.value
+            )
+            return ModelReadiness(False, reason, details)
+        if not isinstance(secret, str) or not secret:
+            return ModelReadiness(False, "MODEL_CREDENTIAL_REQUIRED", details)
         return ModelReadiness(True)
 
     def prepare(self, request: ModelRequest) -> PreparedModelRequest:

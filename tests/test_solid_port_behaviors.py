@@ -78,6 +78,15 @@ async def test_runner_identity_replay_fence_cancel_and_borrowed_client(tmp_path,
         assert await runner.execute(command) == result
         assert await runner.status(command.command_id) == result
         assert await runner.cancel(command.command_id) == result
+        checkpoint = await runner.checkpoint("workspace1")
+        assert (await runner.prepare(request))["state"] == "READY"
+        # ZIP timestamps need not be stable: compare decoded source bytes.
+        from test_pipeline import read_zip
+
+        assert read_zip(await runner.checkpoint("workspace1")) == read_zip(checkpoint)
+        with pytest.raises(RunnerError) as input_conflict:
+            await runner.prepare(request.model_copy(update={"archive_sha256": "b" * 64}))
+        assert input_conflict.value.code == "CONFLICT"
         with pytest.raises(RunnerError) as conflict:
             await runner.execute(command.model_copy(update={"argv": ["different"]}))
         assert conflict.value.code == "CONFLICT"
