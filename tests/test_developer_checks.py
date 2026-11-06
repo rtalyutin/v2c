@@ -5,6 +5,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -25,7 +27,8 @@ def test_architecture_gate_rejects_forbidden_dependency_and_cycle(tmp_path):
     domain.write_text(
         "from typing import TYPE_CHECKING\nif TYPE_CHECKING:\n    from v2c.adapters.cloud import Request\n"
     )
-    assert architecture(tmp_path).returncode == 0
+    assert architecture(tmp_path).returncode != 0
+    domain.write_text("")
     (tmp_path / "workflow" / "__init__.py").write_text("from v2c.adapters.cloud import request\n")
     result = architecture(tmp_path)
     assert result.returncode != 0 and "Forbidden dependency" in result.stderr
@@ -85,3 +88,30 @@ def test_migration_gate_rejects_unmigrated_model_column(tmp_path):
     assert drift.returncode != 0, output
     assert "New upgrade operations detected" in output
     assert "add_column" in output and "maintenance_drift_probe" in output
+
+
+@pytest.mark.parametrize(
+    "layer,target",
+    [
+        ("contracts", "v2c.adapters.model"),
+        ("contracts", "v2c.config"),
+        ("contracts", "httpx"),
+        ("workflow", "pydantic"),
+        ("application", "v2c.engine"),
+        ("orchestration", "sqlalchemy"),
+        ("orchestration", "v2c.persistence.runs"),
+    ],
+)
+@pytest.mark.parametrize("type_only", [False, True])
+def test_solid_import_boundaries_cover_annotations_and_runtime(tmp_path, layer, target, type_only):
+    directory = tmp_path / layer
+    directory.mkdir()
+    statement = f"import {target}\n"
+    if type_only:
+        statement = "from typing import TYPE_CHECKING\nif TYPE_CHECKING:\n    " + statement
+    module = directory / "example.py"
+    module.write_text(statement)
+    denied = architecture(tmp_path)
+    assert denied.returncode != 0 and "Forbidden dependency" in denied.stderr
+    module.write_text("from v2c.contracts.model import ModelPort\n")
+    assert architecture(tmp_path).returncode == 0

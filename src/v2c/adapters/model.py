@@ -14,7 +14,9 @@ from typing import Any, Literal
 from urllib.parse import urlsplit
 
 import httpx
-from jsonschema import Draft202012Validator, SchemaError, ValidationError
+
+# jsonschema has no inline types; provider JSON is validated at this boundary.
+from jsonschema import Draft202012Validator, SchemaError, ValidationError  # type: ignore[import-untyped]
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from ..contracts.model import (
@@ -118,7 +120,10 @@ def strict_json_schema(schema: dict[str, Any]) -> dict[str, Any]:
             result["additionalProperties"] = False
         return result
 
-    return transform(schema)
+    result = transform(schema)
+    if not isinstance(result, dict):
+        raise AdapterError(ErrorCategory.INVALID_CONFIG, "response schema must be an object")
+    return result
 
 
 class OpenAICompatibleModel:
