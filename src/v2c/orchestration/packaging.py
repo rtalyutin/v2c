@@ -5,34 +5,54 @@ from __future__ import annotations
 import io
 import zipfile
 from pathlib import Path
-from typing import cast
+from typing import Literal, Protocol, cast, overload
 
-from ..contracts.ports import PipelineSettings
+from ..contracts.control import PackagingControl
 from ..contracts.storage import ArtifactStore
-from ..contracts.workflow import ArtifactPointer, PackageResult, RunClaim, TransformResult
+from ..contracts.workflow import (
+    ArtifactPointer,
+    InspectResult,
+    PackageResult,
+    RunClaim,
+    StepRecord,
+    TransformResult,
+    VerifyResult,
+)
 from ..delivery import DeliveryError, package_delivery
-from ..engine import Engine
 from ..intake import Snapshot, restore_snapshot_archive
 from .archive import screened_text
 from .handoff import public_receipts
-from .sources import SourceArtifacts
+
+
+class PackagingSources(Protocol):
+    @overload
+    def required_result(self, run_id: str, kind: Literal["inspect"]) -> InspectResult: ...
+    @overload
+    def required_result(self, run_id: str, kind: Literal["verify"]) -> VerifyResult: ...
+    @overload
+    def required_result(self, run_id: str, kind: Literal["package"]) -> PackageResult: ...
+    def source(self, claim: RunClaim) -> Snapshot: ...
+    def artifact_bytes(self, ref: ArtifactPointer) -> bytes: ...
+    def completed(self, run_id: str, kind: str) -> list[StepRecord]: ...
 
 
 class PackagingOperations:
     def __init__(
         self,
-        engine: Engine,
+        engine: PackagingControl,
         store: ArtifactStore,
-        sources: SourceArtifacts,
-        settings: PipelineSettings | None,
+        sources: PackagingSources,
+        work_root: Path | None,
+        instruction_max_bytes: int = 65536,
     ):
-        self.engine, self.store, self.sources, self.settings = engine, store, sources, settings
+        self.engine, self.store, self.sources, self.work_root = engine, store, sources, work_root
+        self.instruction_max_bytes = instruction_max_bytes
 
     def build(self, claim: RunClaim) -> PackageResult:
         verified = self.sources.required_result(claim["run"]["id"], "verify")
         inspected = self.sources.required_result(claim["run"]["id"], "inspect")
         source = self.sources.source(claim)
-        work_root = Path(getattr(self.settings, "work_root", source.root.parent))
+        work_root = self.work_root if self.work_root is not None else source.root.parent
         export_root = work_root / "deliveries" / claim["run"]["id"] / claim["attempt"]["id"]
         export_root.mkdir(parents=True, exist_ok=True)
         restored_path = export_root / "snapshot"
@@ -111,7 +131,7 @@ class PackagingOperations:
         bundle = self.sources.artifact_bytes(package["bundle"])
         with zipfile.ZipFile(io.BytesIO(bundle)) as archive:
             docs = {}
-            remaining = self.sources.limits.model_max_input_bytes // 4
+            remaining = self.instruction_max_bytes
             for name in sorted(archive.namelist()):
                 if (
                     "skills/" in name or name.endswith(("README.md", "ARCHITECTURE.md"))

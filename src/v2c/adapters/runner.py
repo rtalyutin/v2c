@@ -204,6 +204,8 @@ class _HTTPSClient:
 
 
 class RunnerClient(_HTTPSClient):
+    is_test = False
+
     async def _object(
         self, method: str, path: str, payload: dict[str, Any] | None = None
     ) -> dict[str, Any]:

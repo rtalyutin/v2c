@@ -81,7 +81,6 @@ async def test_real_worker_logs_failed_durable_operation_across_task_boundary(tm
         OperationJournal(engine, limits),
         limits,
         None,
-        lambda: None,
         object(),
         lambda _: runner,
     )

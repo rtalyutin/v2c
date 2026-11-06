@@ -7,7 +7,8 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Literal, cast, overload
 
-from ..contracts.ports import PipelineSettings, RunnerPort
+from ..contracts.control import SourceControl
+from ..contracts.ports import RunnerPort
 from ..contracts.storage import ArtifactStore
 from ..contracts.workflow import (
     ArtifactPointer,
@@ -24,7 +25,6 @@ from ..contracts.workflow import (
     VerifyResult,
 )
 from ..diagnostics import annotate_exception
-from ..engine import Engine
 from ..intake import Snapshot
 from .archive import archive_context, assert_source_unchanged
 from .common import InputRequired, PipelineLimits, stable_id
@@ -41,14 +41,14 @@ def read_artifact(store: ArtifactStore, ref: ArtifactPointer) -> bytes:
 class SourceArtifacts:
     def __init__(
         self,
-        engine: Engine,
+        engine: SourceControl,
         store: ArtifactStore,
         journal: OperationJournal,
         limits: PipelineLimits,
-        settings: PipelineSettings | None,
+        work_root: Path | None,
     ):
         self.engine, self.store, self.journal = engine, store, journal
-        self.limits, self.settings = limits, settings
+        self.limits, self.work_root = limits, work_root
 
     def source(self, claim: RunClaim) -> Snapshot:
         manifest = self.engine.get_snapshot(claim["run"]["snapshot_id"])["manifest"]
@@ -70,7 +70,7 @@ class SourceArtifacts:
                 for name, ref in manifest["source_git_bundles"].items()
             }
             destination = (
-                Path(getattr(self.settings, "work_root", Path(root).parent))
+                (self.work_root if self.work_root is not None else Path(root).parent)
                 / "restored-sources"
                 / claim["run"]["snapshot_id"]
             )

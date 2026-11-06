@@ -5,9 +5,12 @@ from __future__ import annotations
 import hashlib
 import json
 
+from ..contracts.control import HandoffControl
+from ..contracts.records import digest
 from ..contracts.storage import ArtifactStore
 from ..contracts.workflow import JsonObject
-from ..engine import REQUIRED_VERIFICATIONS, DomainError, Engine, digest
+from ..workflow.errors import DomainError
+from ..workflow.states import REQUIRED_VERIFICATIONS
 from .archive import archive_executables, checked_archive_files, code_zip
 from .common import json_bytes
 from .sources import read_artifact
@@ -31,7 +34,7 @@ def public_receipts(rows: list[JsonObject]) -> list[JsonObject]:
 
 
 class HandoffSealer:
-    def __init__(self, engine: Engine, store: ArtifactStore):
+    def __init__(self, engine: HandoffControl, store: ArtifactStore):
         self.engine, self.store = engine, store
 
     def seal(self, run_id: str, final_digest: str) -> JsonObject:

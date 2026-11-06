@@ -2,14 +2,21 @@
 
 from __future__ import annotations
 
+from typing import Protocol
+
+from ..contracts.control import HandoffControl, HumanHandoffControl
 from ..contracts.operator import HumanHandoff
+from ..contracts.storage import ArtifactStore
 from ..contracts.workflow import RunRecord
-from ..engine import DomainError, Engine
-from ..storage import ArtifactStore
+from ..workflow.errors import DomainError
+
+
+class HandoffApplicationControl(HumanHandoffControl, HandoffControl, Protocol):
+    pass
 
 
 def record_human_handoff(
-    engine: Engine,
+    engine: HandoffApplicationControl,
     store: ArtifactStore,
     run_id: str,
     body: HumanHandoff,

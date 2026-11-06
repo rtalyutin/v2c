@@ -14,20 +14,19 @@ from pathlib import Path
 
 from pydantic import ValidationError
 
-from ..adapters.model import EnvSecretResolver
-from ..config import Settings
+from ..contracts.control import ImportControl
 from ..contracts.operator import RepositoryImport
-from ..engine import Engine
+from ..contracts.ports import ImportSettings
+from ..contracts.records import SnapshotRecord
+from ..contracts.source import GitFetcher
+from ..contracts.storage import ArtifactStore
 from ..intake import (
-    HTTPSGitFetcher,
     RepositoryInput,
     import_repositories,
     safe_import_archive,
     snapshot_archive_bytes,
     source_git_bundles,
 )
-from ..persistence.records import SnapshotRecord
-from ..storage import ArtifactStore
 
 
 class ImportRejected(Exception):
@@ -40,13 +39,14 @@ class ImportRejected(Exception):
 
 
 async def import_snapshot(
-    engine: Engine,
+    engine: ImportControl,
     store: ArtifactStore,
-    settings: Settings,
+    settings: ImportSettings,
     project_id: str,
     chunks: AsyncIterable[bytes],
     *,
     repositories_json: bool,
+    fetcher: GitFetcher | None = None,
 ) -> SnapshotRecord:
     directory = settings.work_root / project_id / "imports" / str(uuid.uuid4())
     directory.parent.mkdir(parents=True, exist_ok=True)
@@ -65,7 +65,8 @@ async def import_snapshot(
                     RepositoryInput(**repository.model_dump())
                     for repository in request.repositories
                 ]
-                fetcher = HTTPSGitFetcher(settings.git_allowed_hosts, EnvSecretResolver())
+                if fetcher is None:
+                    raise ImportRejected("REPOSITORY_IMPORT_NOT_CONFIGURED", 422)
                 imported = await asyncio.to_thread(
                     import_repositories,
                     repositories,

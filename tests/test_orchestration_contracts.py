@@ -7,6 +7,7 @@ from pathlib import Path
 
 import httpx
 import pytest
+from model_support import FixtureModelContract
 
 from v2c.adapters.runner import MTLSConfig, PrepareRequest, RunnerClient, VMAllocation
 from v2c.diagnostics import failure_record
@@ -107,7 +108,7 @@ async def test_execution_failure_keeps_exception_state_and_operation_identity(
         "image": "fixture@sha256:" + "a" * 64,
     }
 
-    class BrokenPort:
+    class BrokenPort(FixtureModelContract):
         is_test = True
         calls = 0
 
@@ -135,10 +136,15 @@ async def test_execution_failure_keeps_exception_state_and_operation_identity(
             self.calls += 1
             raise error
 
-    port = BrokenPort()
-    operations = ExecutionOperations(
-        engine, journal, limits, None, lambda: None, port, lambda _: port
-    )
+    class BrokenModel(FixtureModelContract):
+        calls = 0
+
+        async def generate(self, request):
+            self.calls += 1
+            raise error
+
+    port = BrokenModel() if boundary == "model" else BrokenPort()
+    operations = ExecutionOperations(engine, journal, limits, None, port, lambda _: port)
     allocation = VMAllocation(
         vm_id="fixture-vm", state="READY", runner_endpoint="https://fixture.invalid"
     )

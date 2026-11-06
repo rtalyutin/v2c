@@ -9,19 +9,17 @@ import os
 import signal
 import socket
 import uuid
-from typing import TYPE_CHECKING
 
+from .contracts.control import WorkerControl
+from .contracts.ports import PipelineRuntime
 from .diagnostics import bind_context, log_failure, reset_context
-from .engine import DomainError, Engine
-
-if TYPE_CHECKING:
-    from .pipeline import Pipeline
+from .workflow.errors import DomainError
 
 logger = logging.getLogger(__name__)
 
 
 async def run_once(
-    engine: Engine, pipeline: Pipeline, worker_id: str, *, lease_seconds: int = 60
+    engine: WorkerControl, pipeline: PipelineRuntime, worker_id: str, *, lease_seconds: int = 60
 ) -> bool:
     reset_context(worker_id=worker_id)
     for run in engine.list_pending_cancel_runs():
@@ -93,8 +91,8 @@ async def run_once(
 
 
 async def serve(
-    engine: Engine,
-    pipeline: Pipeline,
+    engine: WorkerControl,
+    pipeline: PipelineRuntime,
     *,
     worker_id: str | None = None,
     lease_seconds: int = 60,
