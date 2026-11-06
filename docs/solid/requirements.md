@@ -1,5 +1,7 @@
 # Матрица 47 требований
 
+**Публикация и последующий CI:** [PUBLICATION.md](PUBLICATION.md) и [PR #2](https://github.com/rtalyutin/v2c/pull/2). Ниже — локальный checkpoint до публикации.
+
 Кандидат исходников и тестов: `be5af35ce8915fb7164cd6efa55617ee26acebc8`.
 [Отчёт](verification.md), [владельцы](architecture.md), [порты](ports.md).
 

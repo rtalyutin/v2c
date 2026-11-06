@@ -1,5 +1,7 @@
 # Фактическая проверка SOLID-кандидата
 
+**Публикация и последующий CI:** [PUBLICATION.md](PUBLICATION.md) и [PR #2](https://github.com/rtalyutin/v2c/pull/2). Ниже — локальный checkpoint до публикации.
+
 Дата: 2026-11-06. База: `0abb85c0a343b84248edfffaa8d8b844804bccb9`.
 Кандидат кода/тестов: `be5af35ce8915fb7164cd6efa55617ee26acebc8`.
 Ветка: `codex/solid-contracts-20261105`. Новая удалённая ветка/PR не создавались.
