@@ -1,0 +1,30 @@
++ /workspace/scratch/5db56f7dacf5/v2c/.venv/bin/python -m ruff check .
+All checks passed!
++ /workspace/scratch/5db56f7dacf5/v2c/.venv/bin/python -m ruff format --check .
+122 files already formatted
++ /workspace/scratch/5db56f7dacf5/v2c/.venv/bin/python -m mypy --cache-dir /tmp/v2c-types-ed2ggq6s
+Success: no issues found in 73 source files
++ /workspace/scratch/5db56f7dacf5/v2c/.venv/bin/python scripts/check_architecture.py
+Architecture import boundaries and cycles: PASS
++ /workspace/scratch/5db56f7dacf5/v2c/.venv/bin/python scripts/check_docs.py
+Documentation links: 22 files checked
++ /workspace/scratch/5db56f7dacf5/v2c/.venv/bin/python scripts/export_openapi.py --check
+Operator OpenAPI matches code.
++ /workspace/scratch/5db56f7dacf5/v2c/.venv/bin/python -m pytest -q -rs --junitxml=/tmp/v2c-check-a9c_nj8y/pytest.xml
+........................................................................ [ 23%]
+........................................................................ [ 46%]
+....................................ss.................................. [ 69%]
+...........................................s............................ [ 92%]
+.......................                                                  [100%]
+=============================== warnings summary ===============================
+.venv/lib/python3.12/site-packages/fastapi/testclient.py:1
+  /workspace/scratch/5db56f7dacf5/v2c/.venv/lib/python3.12/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+SKIPPED [1] tests/test_postgres.py:70: V2C_TEST_POSTGRES_URL not supplied; PostgreSQL concurrency not exercised
+SKIPPED [1] tests/test_postgres.py:159: V2C_TEST_POSTGRES_URL not supplied; PostgreSQL concurrency not exercised
+SKIPPED [1] tests/test_timeweb_acceptance.py:613: Docker Compose unavailable; actual env-layer configuration gate remains unexecuted
+308 passed, 3 skipped, 1 warning in 75.46s (0:01:15)
+No new upgrade operations detected.

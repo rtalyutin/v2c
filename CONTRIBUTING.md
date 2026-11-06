@@ -86,8 +86,8 @@ interfaces. Contract TypedDict definitions preserve existing JSON/null/hash
 semantics rather than rewriting stored values.
 
 `scripts/check_architecture.py` rejects prohibited runtime imports and cycles.
-Type-only references are excluded. Contracts and pure workflow rules cannot
-import control-plane side effects; persistence cannot call adapters or orchestration;
+Runtime and TYPE_CHECKING references follow the same restrictions. Contracts and pure workflow rules cannot
+import control-plane side effects; application/orchestration cannot import concrete Engine, adapters, persistence or provider clients; persistence cannot call adapters or orchestration;
 runner/provider processes cannot import control-plane ORM/state. Compatibility
 facades are not exempt from the cycle check.
 
@@ -118,3 +118,7 @@ Required CI, independent review and accurate evidence precede release. For this
 refactor specifically, [human acceptance](docs/maintenance/human-acceptance.md)
 is a separate gate. A green suite or an AI review cannot mark it complete.
 No real cloud resources are created by the local test profile.
+
+SOLID refactor ownership, contracts, compatibility deltas and pending acceptance:
+[docs/solid/architecture.md](docs/solid/architecture.md) and
+[docs/solid/requirements.md](docs/solid/requirements.md).

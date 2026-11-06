@@ -9,7 +9,7 @@
 ## Решение
 
 - Сохранить исполнение кода входящего проекта в runner отдельной VM. API/worker управляют этим исполнением через проверяемый протокол. Выделение [runner](../../src/v2c/runner) и [Timeweb provider](../../src/v2c/providers/timeweb) меняет организацию кода, не доверенную границу процесса.
-- Сохранить один активный run и общий runtime lock. [Engine](../../src/v2c/engine.py) и [ControlDatabase](../../src/v2c/persistence/unit_of_work.py) остаются владельцами атомарных guards/записей. Извлечение stores не должно создавать независимые commits внутри одного перехода.
+- Сохранить один активный run и общий runtime lock. [ControlDatabase](../../src/v2c/persistence/unit_of_work.py) владеет атомарными guards, а stores — целыми сценариями записей; [Engine](../../src/v2c/engine.py) сохраняет совместимый API. Текущие границы уточняет [ADR 0002](0002-explicit-solid-boundaries.md). Извлечение stores не должно создавать независимые commits внутри одного перехода.
 - Сохранить существующую EAV-схему, изолировав проекты/метаданные за [MetadataStore](../../src/v2c/persistence/metadata.py). Не мигрировать данные ради внешнего вида ORM-модели.
 - Сохранить durable command protocol: намерение до dispatch, стабильный ID и hash запроса, readback после потерянного ответа, generation fencing и явный `UNKNOWN`. Словари состояний control, runner и gateway остаются раздельными.
 

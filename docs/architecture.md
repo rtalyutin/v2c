@@ -20,11 +20,11 @@ flowchart TD
     Runner --> Docker["Docker: код входящего проекта"]
 ```
 
-API и worker — отдельные процессы. API принимает короткие запросы; [worker](../src/v2c/worker.py) получает claim, поддерживает lease и вызывает Pipeline. Код входящего проекта исполняется runner в VM, а не API/worker. Настройки и сборка зависимостей находятся в [config.py](../src/v2c/config.py); способы развёртывания — в [deployment.md](deployment.md) и [timeweb.md](timeweb.md).
+API и worker — отдельные процессы. API принимает короткие запросы; [worker](../src/v2c/worker.py) получает claim, поддерживает lease и вызывает Pipeline. Код входящего проекта исполняется runner в VM, а не API/worker. Настройки и сборка зависимостей находятся в [config.py](../src/v2c/config.py) и [composition.py](../src/v2c/composition.py); способы развёртывания — в [deployment.md](deployment.md) и [timeweb.md](timeweb.md).
 
 Control DB хранит проекты/метаданные, snapshots, runs, steps, attempts, plans, approvals, команды, свидетельства, указатели артефактов, usage и events. Модель схемы — [models.py](../src/v2c/models.py), изменения схемы — [Alembic](../migrations/versions). SQLite пригоден для локальных проверок; конкурентное поведение PostgreSQL проверяется отдельно. Это не взаимозаменяемое доказательство корректности блокировок.
 
-[ArtifactStore](../src/v2c/storage.py) хранит байты архивов, checkpoints и поставок локально или в S3. В DB находятся ключ, SHA-256, размер и метаданные; запись в object storage и транзакция DB не образуют общей распределённой транзакции. Импорт сначала сохраняет байты и только потом публикует snapshot. Проверка чтения связывает байты с сохранёнными хешем и размером.
+[ArtifactStore](../src/v2c/contracts/storage.py) хранит байты архивов, checkpoints и поставок локально или в S3. В DB находятся ключ, SHA-256, размер и метаданные; запись в object storage и транзакция DB не образуют общей распределённой транзакции. Импорт сначала сохраняет байты и только потом публикует snapshot. Проверка чтения связывает байты с сохранёнными хешем и размером.
 
 Runner и gateway владеют собственными SQLite-журналами, а не control DB. В них сохраняются принятые команды и облачные намерения, необходимые после рестарта. Формат, версия и правила восстановления принадлежат соответствующему процессу.
 
@@ -34,20 +34,20 @@ Runner и gateway владеют собственными SQLite-журнала�
 |---|---|---|
 | HTTP и доступ оператора | [api.py](../src/v2c/api.py), [contracts/operator.py](../src/v2c/contracts/operator.py) | Auth/owner check, входные и выходные DTO, статические файлы, HTTP-ошибки. Схемы полей не выводятся из ORM автоматически |
 | Импорт и человеческий handoff | [application/imports.py](../src/v2c/application/imports.py), [application/handoff.py](../src/v2c/application/handoff.py) | Прикладной порядок операций; caller проверяет владельца до вызова |
-| Переходы и атомарные guards | [engine.py](../src/v2c/engine.py), [workflow/states.py](../src/v2c/workflow/states.py) | Engine координирует транзакции run/step/attempt; states содержит раздельные состояния и чистые правила completion/retry |
+| Переходы и атомарные guards | [engine.py](../src/v2c/engine.py), [workflow/states.py](../src/v2c/workflow/states.py) | RunStore/LeaseStore/PlanStore применяют целые атомарные сценарии, Engine сохраняет API; states содержит раздельные состояния и чистые правила completion/retry |
 | Общая транзакция | [persistence/unit_of_work.py](../src/v2c/persistence/unit_of_work.py) | Runtime lock, текущая attempt/generation, запись события и освобождение активного run |
 | Метаданные, команды, свидетельства, учёт | [metadata.py](../src/v2c/persistence/metadata.py), [commands.py](../src/v2c/persistence/commands.py), [evidence.py](../src/v2c/persistence/evidence.py), [usage.py](../src/v2c/persistence/usage.py) | Запросы и записи через общий ControlDatabase; без model/HTTP/VM вызовов |
-| Этапы преобразования | [pipeline.py](../src/v2c/pipeline.py) | Явный реестр `inspect`, `baseline`, `plan`, `transform`, `verify`, `package`, `ai_handoff` и последовательность операций каждого этапа |
+| Этапы преобразования | [orchestration/stages.py](../src/v2c/orchestration/stages.py), [composition.py](../src/v2c/composition.py) | Handlers и явная регистрация `inspect`, `baseline`, `plan`, `transform`, `verify`, `package`, `ai_handoff` и последовательность операций каждого этапа |
 | Намерения и внешний эффект | [orchestration/journal.py](../src/v2c/orchestration/journal.py), [execution.py](../src/v2c/orchestration/execution.py) | Стабильные IDs, guards, dispatch/readback, lifecycle VM, cancel и reconciliation |
 | Модель и её контекст | [orchestration/model.py](../src/v2c/orchestration/model.py), [schemas.py](../src/v2c/orchestration/schemas.py) | Ограничение контекста, типы ответов, долговечная идентичность модельной операции |
 | Исходники и поставка | [intake.py](../src/v2c/intake.py), [delivery.py](../src/v2c/delivery.py), [orchestration/sources.py](../src/v2c/orchestration/sources.py), [archive.py](../src/v2c/orchestration/archive.py), [handoff.py](../src/v2c/orchestration/handoff.py) | Безопасный импорт/Git, checkpoints, ZIP, manifest, запечатывание точного принятого digest |
-| Порты и адаптеры | [contracts/ports.py](../src/v2c/contracts/ports.py), [contracts/workflow.py](../src/v2c/contracts/workflow.py), [adapters/model.py](../src/v2c/adapters/model.py), [adapters/runner.py](../src/v2c/adapters/runner.py) | Внутренние TypedDict/Protocol отдельно от HTTP DTO; ModelPort и ArtifactStore сохраняют свои интерфейсы |
+| Порты и адаптеры | [contracts/ports.py](../src/v2c/contracts/ports.py), [contracts/workflow.py](../src/v2c/contracts/workflow.py), [adapters/model.py](../src/v2c/adapters/model.py), [adapters/runner.py](../src/v2c/adapters/runner.py) | Нейтральные DTO/Protocol; полный ModelPort теперь явно описывает describe/readiness/prepare/generate |
 | Изолированное исполнение | [runner](../src/v2c/runner), [runner-protocol.md](runner-protocol.md) | API, admission/fencing, журнал, Docker backend, настройки и безопасная распаковка разделены внутри процесса |
 | Cloud lifecycle | [providers/timeweb](../src/v2c/providers/timeweb) | API, gateway service, HTTP-клиент, журнал и сеть; проверка принадлежности ресурса перед удалением |
 | Панель | [web](../src/v2c/web) | `api-client.js` — HTTP; `state.js` — выбор/состояние; `polling.js` — обновление; `render.js` — DOM; `panel.js` — сборка |
 | Диагностика | [diagnostics.py](../src/v2c/diagnostics.py) | Класс ошибки, известные IDs и расположение кадров приложения; без текста исключения, locals, токенов и исходников проекта |
 
-`Engine` и `Pipeline` остаются действующими координаторами, а не пустыми фасадами. [runner_service.py](../src/v2c/runner_service.py) и [timeweb_gateway.py](../src/v2c/timeweb_gateway.py) сохраняют прежние импорты и `python -m` entrypoints. Календарный срок удаления совместимости не установлен; для каждого фасада нужны следующие подтверждения:
+`Engine` сохраняет совместимый API и делегирует целые атомарные операции stores; `Pipeline` — совместимый фасад подготовленных handlers/executor. Актуальная подробная [таблица ответственности](solid/architecture.md) задаёт владельца каждого изменённого класса. [runner_service.py](../src/v2c/runner_service.py) и [timeweb_gateway.py](../src/v2c/timeweb_gateway.py) сохраняют прежние импорты и `python -m` entrypoints. Календарный срок удаления совместимости не установлен; для каждого фасада нужны следующие подтверждения:
 
 | Совместимость | Условие удаления |
 |---|---|
@@ -70,8 +70,8 @@ Runner и gateway владеют собственными SQLite-журнала�
 
 ## Проверяемое направление зависимостей
 
-[check_architecture.py](../scripts/check_architecture.py) запрещает runtime-циклы; `contracts` зависит только от своего слоя, `workflow` — от workflow/contracts. Persistence не импортирует API, Engine, Pipeline, orchestration, application, config, адаптеры, runner и providers. Runner/Timeweb provider не импортируют control-plane ORM или control services. `TYPE_CHECKING`-импорты учитываются отдельно от runtime-зависимостей.
+[check_architecture.py](../scripts/check_architecture.py) запрещает runtime-циклы; `contracts` зависит только от своего слоя, `workflow` — от workflow/contracts. Persistence не импортирует API, Engine, Pipeline, orchestration, application, config, адаптеры, runner и providers. Runner/Timeweb provider не импортируют control-plane ORM или control services. `TYPE_CHECKING`-импорты подчиняются тем же запретам; циклы проверяются по обоим видам импортов.
 
-Это конкретные ограничения текущего дерева, а не обещание полной изоляции каждого файла. Например, orchestration использует Engine, а transport DTO runner пока живут в adapters/runner.py. Новую абстракцию следует вводить для реальной границы и потребителя, а не для выравнивания дерева каталогов.
+Orchestration/application используют узкие consumer-owned порты и не импортируют Engine, config, adapters, ORM/persistence либо HTTP-клиенты. Runner DTO, model values и ArtifactStore живут в contracts; прежние пути сохраняют re-export. Проверочные импорты обеих сторон находятся в scripts/check_conformance.py. Подробные изменения и ограничения доказательства — в [SOLID-отчёте](solid/verification.md).
 
 Результаты автоматических, интеграционных и live-проверок фиксируются в [verification.md](verification.md). Успех этих проверок не подтверждает человеческий gate M10 из [ТЗ](maintenance/specification.md#M10-проверка-человеческой-передачи--обязательный-финальный-gate); продуктовые handoff receipts также не являются свидетельством прохождения M10 для самого v2c.

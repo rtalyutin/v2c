@@ -32,10 +32,12 @@ Branch: `codex/human-maintainability`. No merge, production rollout or live clou
 resource creation is part of this implementation. Completion of technical checks
 does not establish the M10 human maintainability result.
 
-PUBLISHED: [draft PR 1](https://github.com/rtalyutin/v2c/pull/1), implementation
+HISTORICAL DELIVERY: [PR 1](https://github.com/rtalyutin/v2c/pull/1), implementation
 commit `50dedd5f760c9b75c6d216a35c9e4a29414a9983`.
 VERIFIED: [CI run 40509217223](https://github.com/rtalyutin/v2c/actions/runs/40509217223),
 270 Python cases / zero skips, 8 browser cases, PostgreSQL + SQLite schema checks,
 Compose config and container build. Exact trees and job evidence are in verification.
-Next: independent human M10 on the accepted revision. The PR remains a draft;
-no merge into main or production deployment has been authorized or performed.
+Historical PR #1 is included in main at `0abb85c0a343b84248edfffaa8d8b844804bccb9`.
+The draft/no-merge description above records the earlier delivery stage, not the
+current repository status. Human M10 remains unexecuted. Current SOLID work is
+tracked separately in [SOLID TASK_STATE](../solid/TASK_STATE.md).

@@ -3,12 +3,17 @@
 Дата: 27.10.2026. Baseline: `bea8639471537fb9c181089cdb027d69e31a041b`.
 Проверенная опубликованная реализация:
 [`50dedd5f760c9b75c6d216a35c9e4a29414a9983`](https://github.com/rtalyutin/v2c/commit/50dedd5f760c9b75c6d216a35c9e4a29414a9983).
-Ветка: `codex/human-maintainability`, [draft PR №1](https://github.com/rtalyutin/v2c/pull/1).
+Ветка: `codex/human-maintainability`, [PR №1](https://github.com/rtalyutin/v2c/pull/1).
 Объём: M01–M09 из [ТЗ](maintenance/specification.md);
 для M10 подготовлен [протокол](maintenance/human-acceptance.md), человеческое
 исполнение не проведено.
 
-## Текущая проверка
+Этот отчёт относится к предыдущему рефакторингу. PR №1 уже входит в main
+через merge `0abb85c0a343b84248edfffaa8d8b844804bccb9`; приведённые ниже
+результаты не являются проверкой SOLID-кандидата. Актуальный отчёт:
+[SOLID verification](solid/verification.md).
+
+## Историческая проверка
 
 Локальный финальный профиль:
 
