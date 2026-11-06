@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any, Protocol
 
@@ -65,5 +66,51 @@ class ModelResult(BaseModel):
     usage: ModelUsage = Field(default_factory=ModelUsage)
 
 
+@dataclass(frozen=True)
+class ModelDescription:
+    """Public, stable metadata; a credential reference is never its resolved value."""
+
+    version: str
+    manifest: dict[str, Any]
+    max_input_bytes: int
+    test_double: bool = False
+
+    def __post_init__(self) -> None:
+        if not self.version or self.manifest.get("version") != self.version:
+            raise ValueError("model manifest version must match description")
+        if type(self.max_input_bytes) is not int or self.max_input_bytes <= 0:
+            raise ValueError("model input limit must be positive")
+
+
+@dataclass(frozen=True)
+class ModelReadiness:
+    ready: bool
+    reason: str = "MODEL_PROFILE_REQUIRED"
+    details: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class PreparedModelRequest:
+    """Exact secret-free request bytes. Preparation performs no external I/O."""
+
+    body: bytes
+
+    @property
+    def size_bytes(self) -> int:
+        return len(self.body)
+
+
 class ModelPort(Protocol):
+    """The complete model consumer contract.
+
+    describe is stable for a run; readiness performs local admission checks.
+    prepare is deterministic and secret-free, and measures the complete wire
+    payload, including task/schema overhead. generate validates and sends the
+    same payload once; the caller owns durable retry/readback policy and usage.
+    Borrowed clients remain open. Errors are AdapterError with delivery status.
+    """
+
+    def describe(self) -> ModelDescription: ...
+    def readiness(self) -> ModelReadiness: ...
+    def prepare(self, request: ModelRequest) -> PreparedModelRequest: ...
     async def generate(self, request: ModelRequest) -> ModelResult: ...

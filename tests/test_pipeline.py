@@ -10,6 +10,7 @@ from types import SimpleNamespace
 
 import httpx
 import pytest
+from model_support import FixtureModelContract
 from pydantic import ValidationError
 
 from v2c.adapters.model import (
@@ -114,7 +115,7 @@ def patch(before, after):
     }
 
 
-class FixtureModel:
+class FixtureModel(FixtureModelContract):
     is_test = True
 
     def __init__(self):

@@ -24,6 +24,11 @@ from ..contracts.model import (
     ErrorCategory as ErrorCategory,
 )
 from ..contracts.model import (
+    ModelDescription,
+    ModelReadiness,
+    PreparedModelRequest,
+)
+from ..contracts.model import (
     ModelPort as ModelPort,
 )
 from ..contracts.model import (
@@ -139,6 +144,24 @@ class OpenAICompatibleModel:
             raise AdapterError(
                 ErrorCategory.UNSUPPORTED_CAPABILITY, "profile declares unsupported capabilities"
             )
+
+    def describe(self) -> ModelDescription:
+        manifest = self.profile.model_dump(mode="json")
+        manifest["capabilities"] = sorted(manifest["capabilities"])
+        return ModelDescription(self.profile.version, manifest, self.profile.max_input_bytes)
+
+    def readiness(self) -> ModelReadiness:
+        reference = self.profile.secret_ref
+        if reference.startswith("env:"):
+            name = reference[4:]
+            if not name or not name.replace("_", "").isalnum():
+                return ModelReadiness(False, "MODEL_SECRET_REFERENCE_INVALID")
+            if not os.environ.get(name):
+                return ModelReadiness(False, "MODEL_CREDENTIAL_REQUIRED", {"key_env": name})
+        return ModelReadiness(True)
+
+    def prepare(self, request: ModelRequest) -> PreparedModelRequest:
+        return PreparedModelRequest(self.request_body(request))
 
     def request_body(self, request: ModelRequest) -> bytes:
         """Serialize the exact provider payload without keys, I/O or byte rejection.
