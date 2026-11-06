@@ -8,11 +8,11 @@ from pathlib import Path
 from typing import cast
 
 from ..contracts.ports import PipelineSettings
+from ..contracts.storage import ArtifactStore
 from ..contracts.workflow import ArtifactPointer, PackageResult, RunClaim, TransformResult
 from ..delivery import DeliveryError, package_delivery
 from ..engine import Engine
 from ..intake import Snapshot, restore_snapshot_archive
-from ..storage import ArtifactStore
 from .archive import screened_text
 from .handoff import public_receipts
 from .sources import SourceArtifacts

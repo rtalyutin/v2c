@@ -6,29 +6,18 @@ import base64
 import hashlib
 import os
 import tempfile
-from dataclasses import asdict, dataclass
 from pathlib import Path, PurePosixPath
-from typing import Any, Protocol
+from typing import Any
 
-
-class StorageError(ValueError):
-    pass
-
-
-@dataclass(frozen=True)
-class ArtifactRef:
-    key: str
-    sha256: str
-    size: int
-
-    def to_dict(self) -> dict:
-        return asdict(self)
-
-
-class ArtifactStore(Protocol):
-    def put_bytes(self, key: str, data: bytes) -> ArtifactRef: ...
-    def get_bytes(self, key: str) -> bytes: ...
-    def exists(self, key: str) -> bool: ...
+from .contracts.storage import (
+    ArtifactRef as ArtifactRef,
+)
+from .contracts.storage import (
+    ArtifactStore as ArtifactStore,
+)
+from .contracts.storage import (
+    StorageError as StorageError,
+)
 
 
 def checked_key(key: str) -> str:

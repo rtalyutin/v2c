@@ -10,43 +10,31 @@ import asyncio
 import json
 import os
 from collections.abc import Callable
-from enum import StrEnum
-from typing import Any, Literal, Protocol
+from typing import Any, Literal
 from urllib.parse import urlsplit
 
 import httpx
 from jsonschema import Draft202012Validator, SchemaError, ValidationError
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-
-class ErrorCategory(StrEnum):
-    AUTH = "AUTH"
-    INVALID_CONFIG = "INVALID_CONFIG"
-    UNSUPPORTED_CAPABILITY = "UNSUPPORTED_CAPABILITY"
-    RATE_LIMIT = "RATE_LIMIT"
-    TRANSPORT_OR_TIMEOUT = "TRANSPORT_OR_TIMEOUT"
-    PROVIDER_FAILURE = "PROVIDER_FAILURE"
-    INVALID_RESPONSE = "INVALID_RESPONSE"
-    CANCELLED = "CANCELLED"
-
-
-class AdapterError(Exception):
-    def __init__(
-        self,
-        category: ErrorCategory | str,
-        message: str,
-        *,
-        retryable: bool = False,
-        delivery_unknown: bool = False,
-        usage_unknown: bool = True,
-        provider_request_id: str | None = None,
-    ):
-        super().__init__(message)
-        self.category = ErrorCategory(category)
-        self.retryable = retryable
-        self.delivery_unknown = delivery_unknown
-        self.usage_unknown = usage_unknown
-        self.provider_request_id = provider_request_id
+from ..contracts.model import (
+    AdapterError as AdapterError,
+)
+from ..contracts.model import (
+    ErrorCategory as ErrorCategory,
+)
+from ..contracts.model import (
+    ModelPort as ModelPort,
+)
+from ..contracts.model import (
+    ModelRequest as ModelRequest,
+)
+from ..contracts.model import (
+    ModelResult as ModelResult,
+)
+from ..contracts.model import (
+    ModelUsage as ModelUsage,
+)
 
 
 class ModelProfile(BaseModel):
@@ -78,37 +66,6 @@ class ModelProfile(BaseModel):
                 "model endpoint must be an explicit HTTPS base URL without credentials/query/fragment"
             )
         return value.rstrip("/")
-
-
-class ModelRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-    request_id: str = Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9_-]+$")
-    task: str = Field(min_length=1)
-    context: str
-    response_schema: dict[str, Any] | None = None
-    required_capabilities: frozenset[str] = frozenset({"text"})
-
-
-class ModelUsage(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-    input_tokens: int | None = Field(default=None, ge=0)
-    output_tokens: int | None = Field(default=None, ge=0)
-    total_tokens: int | None = Field(default=None, ge=0)
-    cost: str | None = None
-    currency: str | None = None
-
-
-class ModelResult(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-    text: str
-    structured: Any = None
-    finish_reason: str
-    provider_request_id: str | None = None
-    usage: ModelUsage = Field(default_factory=ModelUsage)
-
-
-class ModelPort(Protocol):
-    async def generate(self, request: ModelRequest) -> ModelResult: ...
 
 
 class EnvSecretResolver:

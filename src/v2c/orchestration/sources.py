@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Literal, cast, overload
 
 from ..contracts.ports import PipelineSettings, RunnerPort
+from ..contracts.storage import ArtifactStore
 from ..contracts.workflow import (
     ArtifactPointer,
     BaselineResult,
@@ -25,7 +26,6 @@ from ..contracts.workflow import (
 from ..diagnostics import annotate_exception
 from ..engine import Engine
 from ..intake import Snapshot
-from ..storage import ArtifactStore
 from .archive import archive_context, assert_source_unchanged
 from .common import InputRequired, PipelineLimits, stable_id
 from .journal import OperationJournal

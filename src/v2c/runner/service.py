@@ -17,7 +17,7 @@ from typing import Any, cast
 
 from pydantic import ValidationError
 
-from ..adapters.runner import (
+from ..contracts.runner import (
     AuthorizationRequest,
     CommandRequest,
     CommandResult,

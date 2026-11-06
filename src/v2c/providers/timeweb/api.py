@@ -12,7 +12,7 @@ from pathlib import Path
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
 
-from ...adapters.runner import VMAllocation
+from ...contracts.runner import VMAllocation
 from .client import RunnerProbe, TimewebClient
 from .contracts import AllocateRequest, GatewayError, GatewaySettings
 from .network import NetworkPolicy, public_firewall_rules

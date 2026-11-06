@@ -9,7 +9,7 @@ from typing import Any, cast
 
 from pydantic import ValidationError
 
-from ..adapters.model import AdapterError, ErrorCategory, ModelPort, ModelRequest
+from ..contracts.model import AdapterError, ErrorCategory, ModelPort, ModelRequest
 from ..contracts.workflow import JsonObject, RunClaim
 from ..diagnostics import annotate_exception
 from ..engine import DomainError, Engine, digest

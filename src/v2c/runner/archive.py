@@ -6,7 +6,7 @@ import io
 import zipfile
 from pathlib import Path, PurePosixPath
 
-from ..adapters.runner import RunnerError
+from ..contracts.runner import RunnerError
 from .settings import RunnerSettings
 
 

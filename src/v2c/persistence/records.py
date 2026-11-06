@@ -6,42 +6,22 @@ hashes and old consumers rely on canonical JSON and explicit NULL fields.
 
 from __future__ import annotations
 
-import hashlib
-import json
-import uuid
-from typing import Any, TypedDict
-
+from ..contracts.records import (
+    ProjectRecord as ProjectRecord,
+)
+from ..contracts.records import (
+    Row as Row,
+)
+from ..contracts.records import (
+    SnapshotRecord as SnapshotRecord,
+)
+from ..contracts.records import (
+    digest as digest,
+)
+from ..contracts.records import (
+    identifier as identifier,
+)
 from ..models import Base
-
-Row = dict[str, Any]
-
-
-class ProjectRecord(TypedDict):
-    id: str
-    owner_id: str
-    name: str | None
-    created_at: float
-
-
-class SnapshotRecord(TypedDict):
-    id: str
-    project_id: str
-    digest: str
-    manifest: Row
-    artifact_id: str | None
-    created_at: float
-
-
-def identifier() -> str:
-    return str(uuid.uuid4())
-
-
-def digest(value: object) -> str:
-    return hashlib.sha256(
-        json.dumps(
-            value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False
-        ).encode()
-    ).hexdigest()
 
 
 def dto(row: Base) -> Row:

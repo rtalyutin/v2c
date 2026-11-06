@@ -5,9 +5,9 @@ from __future__ import annotations
 import hashlib
 import json
 
+from ..contracts.storage import ArtifactStore
 from ..contracts.workflow import JsonObject
 from ..engine import REQUIRED_VERIFICATIONS, DomainError, Engine, digest
-from ..storage import ArtifactStore
 from .archive import archive_executables, checked_archive_files, code_zip
 from .common import json_bytes
 from .sources import read_artifact

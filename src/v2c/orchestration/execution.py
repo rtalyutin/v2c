@@ -10,8 +10,8 @@ import time
 from collections.abc import Callable
 from typing import cast
 
-from ..adapters.runner import CommandRequest, PrepareRequest, RunnerError, VMAllocation
 from ..contracts.ports import PipelineSettings, RunnerFactory, RunnerPort, VMProviderPort
+from ..contracts.runner import CommandRequest, PrepareRequest, RunnerError, VMAllocation
 from ..contracts.workflow import (
     CheckOutcome,
     CommandOutcome,
@@ -91,7 +91,7 @@ class ExecutionOperations:
             },
         )
         if row["status"] == "SUCCEEDED":
-            from ..adapters.runner import VMAllocation
+            from ..contracts.runner import VMAllocation
 
             allocation = VMAllocation.model_validate(row["result"])
         else:
@@ -428,7 +428,7 @@ class ExecutionOperations:
                 claim["attempt"]["id"], claim["attempt"]["generation"]
             )
             return True
-        from ..adapters.runner import VMAllocation
+        from ..contracts.runner import VMAllocation
 
         assert self.vm_provider is not None and self.runner_factory is not None
         for row in allocations:

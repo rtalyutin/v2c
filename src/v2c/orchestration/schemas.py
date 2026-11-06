@@ -6,7 +6,7 @@ from typing import Literal, cast
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from ..adapters.runner import PostgresService
+from ..contracts.runner import PostgresService
 from ..contracts.workflow import RecipePayload
 from ..intake import safe_relative_path
 

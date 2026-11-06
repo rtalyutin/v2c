@@ -7,7 +7,7 @@ import threading
 from pathlib import Path
 from typing import cast
 
-from ..adapters.runner import CommandRequest, CommandResult, RunnerError
+from ..contracts.runner import CommandRequest, CommandResult, RunnerError
 
 TERMINAL = {"SUCCEEDED", "FAILED", "CANCELLED"}
 

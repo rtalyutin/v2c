@@ -4,13 +4,17 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Protocol
+from typing import Protocol
 
-from .runner import AuthorizeReply, PrepareReply
+from .runner import (
+    AuthorizeReply,
+    CommandRequest,
+    CommandResult,
+    PrepareReply,
+    PrepareRequest,
+    VMAllocation,
+)
 from .workflow import ExecutionLimits
-
-if TYPE_CHECKING:
-    from ..adapters.runner import CommandRequest, CommandResult, PrepareRequest, VMAllocation
 
 
 class RunnerPort(Protocol):
