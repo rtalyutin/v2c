@@ -216,10 +216,14 @@ class FixtureRunner:
         return result
 
     async def status(self, command_id):
+        from v2c.contracts.runner import RunnerError
+
+        if command_id not in self.commands:
+            raise RunnerError("NOT_FOUND", "fixture command was not admitted")
         return self.commands[command_id]
 
     async def cancel(self, command_id):
-        return self.commands[command_id]
+        return await self.status(command_id)
 
     async def checkpoint(self, workspace_id):
         return zip_bytes(self.files)

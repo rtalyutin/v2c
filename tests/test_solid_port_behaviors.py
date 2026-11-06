@@ -86,6 +86,9 @@ async def test_runner_identity_replay_fence_cancel_and_borrowed_client(tmp_path,
             await runner.execute(command.model_copy(update={"command_id": "stale"}))
         assert stale.value.code == "STALE_GENERATION"
         assert (backend.calls if implementation == "runner-http" else runner.executions) == 1
+        with pytest.raises(RunnerError) as absent:
+            await runner.status("not-admitted")
+        assert absent.value.code == "NOT_FOUND"
         assert not client.is_closed
 
 

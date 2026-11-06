@@ -115,3 +115,38 @@ def test_solid_import_boundaries_cover_annotations_and_runtime(tmp_path, layer, 
     assert denied.returncode != 0 and "Forbidden dependency" in denied.stderr
     module.write_text("from v2c.contracts.model import ModelPort\n")
     assert architecture(tmp_path).returncode == 0
+
+
+def test_model_port_rejects_generate_only_and_accepts_independent_implementation(tmp_path):
+    control = tmp_path / "model_control.py"
+    command = [
+        sys.executable,
+        "-m",
+        "mypy",
+        "--strict",
+        "--no-incremental",
+        "--follow-imports=silent",
+        str(control),
+    ]
+    environment = dict(
+        os.environ, MYPYPATH=os.pathsep.join([str(ROOT / "src"), str(ROOT / "tests")])
+    )
+    control.write_text(
+        "from v2c.contracts.model import ModelPort, ModelRequest, ModelResult\n"
+        "class GenerateOnly:\n"
+        "    async def generate(self, request: ModelRequest) -> ModelResult:\n"
+        "        return ModelResult(text='ok', finish_reason='stop')\n"
+        "port: ModelPort = GenerateOnly()\n"
+    )
+    denied = subprocess.run(command, cwd=tmp_path, env=environment, text=True, capture_output=True)
+    assert denied.returncode != 0 and "incompatible" in denied.stdout.lower()
+    assert "GenerateOnly" in denied.stdout and "ModelPort" in denied.stdout, denied.stdout
+    control.write_text(
+        "from v2c.contracts.model import ModelPort\n"
+        "from solid_model import ContractModel\n"
+        "port: ModelPort = ContractModel({})\n"
+    )
+    accepted = subprocess.run(
+        command, cwd=tmp_path, env=environment, text=True, capture_output=True
+    )
+    assert accepted.returncode == 0, accepted.stdout + accepted.stderr
