@@ -15,6 +15,7 @@ from ..contracts.workflow import JsonObject, RunClaim
 from ..diagnostics import annotate_exception
 from ..workflow.errors import DomainError
 from .archive import _SECRET
+from .blocking import run_blocking
 from .common import InputRequired, PipelineLimits, StepFailure, json_bytes, stable_id
 from .journal import OperationJournal
 from .schemas import DTO
@@ -224,8 +225,8 @@ class ModelOperations:
         if _SECRET.search(json_bytes(context).decode()):
             raise InputRequired("MODEL_CONTEXT_SECRET_REVIEW_REQUIRED")
         try:
-            context, context_selection = self.fit_context(
-                request_id, task, context, schema.model_json_schema()
+            context, context_selection = await run_blocking(
+                self.fit_context, request_id, task, context, schema.model_json_schema()
             )
         except AdapterError as error:
             # Pure serialization/capability rejection happens before a provider

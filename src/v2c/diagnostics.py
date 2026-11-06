@@ -11,6 +11,10 @@ import logging
 from contextvars import ContextVar
 from typing import TypeAlias
 
+from .contracts.model import AdapterError
+from .contracts.runner import RunnerError
+from .contracts.storage import StorageError
+
 ContextValue: TypeAlias = str | int | None
 _FIELDS = frozenset(
     {"worker_id", "run_id", "step_id", "attempt_id", "generation", "command_id", "allocation_id"}
@@ -62,6 +66,15 @@ def failure_record(error: Exception, *, worker_id: str) -> dict[str, object]:
         **context,
         "worker_id": worker_id,
         "error_class": type(error).__name__,
+        "error_category": (
+            error.category.value
+            if isinstance(error, AdapterError)
+            else "RUNNER_FAILURE"
+            if isinstance(error, RunnerError)
+            else "STORAGE_FAILURE"
+            if isinstance(error, StorageError)
+            else "INTERNAL_FAILURE"
+        ),
         "locations": locations,
         "recovery": "read_durable_state_before_retry",
     }

@@ -6,7 +6,6 @@ publishes its database pointer only after every immutable source object exists.
 
 from __future__ import annotations
 
-import asyncio
 import tempfile
 import uuid
 from collections.abc import AsyncIterable
@@ -27,6 +26,7 @@ from ..intake import (
     snapshot_archive_bytes,
     source_git_bundles,
 )
+from ..orchestration.blocking import run_blocking
 
 
 class ImportRejected(Exception):
@@ -67,7 +67,7 @@ async def import_snapshot(
                 ]
                 if fetcher is None:
                     raise ImportRejected("REPOSITORY_IMPORT_NOT_CONFIGURED", 422)
-                imported = await asyncio.to_thread(
+                imported = await run_blocking(
                     import_repositories,
                     repositories,
                     directory,
@@ -75,7 +75,7 @@ async def import_snapshot(
                     fetcher=fetcher,
                 )
             else:
-                imported = await asyncio.to_thread(
+                imported = await run_blocking(
                     safe_import_archive,
                     Path(incoming.name),
                     directory,
@@ -86,16 +86,16 @@ async def import_snapshot(
 
     manifest = dict(imported.manifest)
     manifest["workspace_root"] = str(imported.root.resolve())
-    archive = await asyncio.to_thread(snapshot_archive_bytes, imported)
+    archive = await run_blocking(snapshot_archive_bytes, imported)
     key = f"snapshots/{project_id}/{imported.snapshot_id}.zip"
-    ref = await asyncio.to_thread(store.put_bytes, key, archive)
+    ref = await run_blocking(store.put_bytes, key, archive)
     manifest["archive_key"] = ref.key
     manifest["archive_sha256"] = ref.sha256
     manifest["archive_size"] = ref.size
-    git_bundles = await asyncio.to_thread(source_git_bundles, imported)
+    git_bundles = await run_blocking(source_git_bundles, imported)
     manifest["source_git_bundles"] = {}
     for name, data in git_bundles.items():
-        bundle_ref = await asyncio.to_thread(
+        bundle_ref = await run_blocking(
             store.put_bytes, f"snapshots/{project_id}/{imported.snapshot_id}/{name}.bundle", data
         )
         manifest["source_git_bundles"][name] = {

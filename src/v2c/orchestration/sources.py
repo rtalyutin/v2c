@@ -27,6 +27,7 @@ from ..contracts.workflow import (
 from ..diagnostics import annotate_exception
 from ..intake import Snapshot
 from .archive import archive_context, assert_source_unchanged
+from .blocking import run_blocking
 from .common import InputRequired, PipelineLimits, stable_id
 from .journal import OperationJournal
 
@@ -158,13 +159,19 @@ class SourceArtifacts:
         )
         if row["status"] == "SUCCEEDED":
             return cast(CheckpointRef, row["result"])
-        archive = assert_source_unchanged(expected_source, await runner.checkpoint(workspace))
+        archive = await run_blocking(
+            assert_source_unchanged, expected_source, await runner.checkpoint(workspace)
+        )
         # Exported files remain untrusted. Full safe import runs again before
         # packaging; this bounded context check detects obvious secret leakage.
-        archive_context(archive, max_bytes=self.limits.model_max_input_bytes // 2)
+        await run_blocking(
+            archive_context, archive, max_bytes=self.limits.model_max_input_bytes // 2
+        )
         sha = hashlib.sha256(archive).hexdigest()
-        ref = self.store.put_bytes(f"runs/{claim['run']['id']}/checkpoints/{sha}.zip", archive)
-        source = self.source(claim)
+        ref = await run_blocking(
+            self.store.put_bytes, f"runs/{claim['run']['id']}/checkpoints/{sha}.zip", archive
+        )
+        source = await run_blocking(self.source, claim)
         manifest = {
             "repositories": [r.name for r in source.repositories],
             "plan_revision": claim["run"]["plan_revision"],

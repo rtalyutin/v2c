@@ -83,6 +83,13 @@ async def run_once(
                 raise exception
         await task
         return True
+    except asyncio.CancelledError:
+        # Cancellation of the supervisor must not leave its producer detached.
+        # run_blocking waits for any local thread before this task can finish.
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+        raise
     finally:
         if not pulse.done():
             pulse.cancel()

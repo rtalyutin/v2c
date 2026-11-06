@@ -16,6 +16,7 @@ from typing import Literal, cast, overload
 
 from ..contracts.model import ModelPort
 from ..contracts.ports import RunnerFactory, RunnerPort, VMProviderPort
+from ..contracts.proposals import HandoffInput
 from ..contracts.runner import VMAllocation
 from ..contracts.workflow import (
     ArtifactPointer,
@@ -43,6 +44,7 @@ from .archive import (
     screened_text,
     snapshot_archive,
 )
+from .blocking import run_blocking
 from .common import (
     InputRequired,
     PipelineLimits,
@@ -222,15 +224,19 @@ class StageHandlers:
         return await self.execution.reconcile(claim)
 
     async def _stage_inspect(self, claim: RunClaim) -> InspectResult:
-        snapshot = self._source(claim)
-        inspection = inspect_snapshot(snapshot)
-        archive = snapshot_archive(snapshot)
-        ref = self.store.put_bytes(
-            f"runs/{claim['run']['id']}/source/{hashlib.sha256(archive).hexdigest()}.zip", archive
+        snapshot = await run_blocking(self._source, claim)
+        inspection = await run_blocking(inspect_snapshot, snapshot)
+        archive = await run_blocking(snapshot_archive, snapshot)
+        ref = await run_blocking(
+            self.store.put_bytes,
+            f"runs/{claim['run']['id']}/source/{hashlib.sha256(archive).hexdigest()}.zip",
+            archive,
         )
         context = {
             "map": {k: v for k, v in inspection.items() if k not in {"workspace_root", "source"}},
-            "source": archive_context(archive, max_bytes=self.limits.model_max_input_bytes // 2),
+            "source": await run_blocking(
+                archive_context, archive, max_bytes=self.limits.model_max_input_bytes // 2
+            ),
         }
         recipe = await self._model(
             claim,
@@ -275,7 +281,7 @@ class StageHandlers:
         workspace = await self._prepare(
             claim,
             runner,
-            self._artifact_bytes(inspected["source_archive"]),
+            await run_blocking(self._artifact_bytes, inspected["source_archive"]),
             recipe.to_payload(),
         )
         setup = await self._commands(
@@ -293,7 +299,7 @@ class StageHandlers:
             workspace,
             recipe.to_payload(),
             key="baseline_checkpoint",
-            expected_source=self._artifact_bytes(inspected["source_archive"]),
+            expected_source=await run_blocking(self._artifact_bytes, inspected["source_archive"]),
         )
         self.engine.add_step(claim["run"]["id"], "plan", "plan", **self._fence(claim))
         return {
@@ -321,8 +327,9 @@ class StageHandlers:
                 },
                 "baseline": baseline,
                 "recipe": inspected["recipe"],
-                "source": archive_context(
-                    self._artifact_bytes(baseline["checkpoint"]),
+                "source": await run_blocking(
+                    archive_context,
+                    await run_blocking(self._artifact_bytes, baseline["checkpoint"]),
                     max_bytes=self.limits.model_max_input_bytes // 2,
                 ),
             },
@@ -333,7 +340,8 @@ class StageHandlers:
             for path in work["files"]:
                 safe_relative_path(path)
                 if not any(
-                    path.startswith(r.path + "/") for r in (self._source(claim)).repositories
+                    path.startswith(r.path + "/")
+                    for r in (await run_blocking(self._source, claim)).repositories
                 ):
                     raise StepFailure(
                         "INVALID_RESPONSE", {"reason": "work outside known repositories"}
@@ -403,7 +411,7 @@ class StageHandlers:
             work = cast(JsonObject, plan)["plan"]["steps"][0]
         work = PlannedWork.model_validate(work)
         source_checkpoint = self._last_checkpoint(claim)
-        archive = self._artifact_bytes(source_checkpoint)
+        archive = await run_blocking(self._artifact_bytes, source_checkpoint)
         # The context contains neither held-out task nor expected acceptance.
         proposal = await self._model(
             claim,
@@ -414,14 +422,17 @@ class StageHandlers:
             "The controller applies and checks your proposal in a disposable project container.",
             {
                 "work": work.model_dump(),
-                "source": archive_context(
-                    archive, max_bytes=self.limits.model_max_input_bytes // 2, selected=work.files
+                "source": await run_blocking(
+                    archive_context,
+                    archive,
+                    max_bytes=self.limits.model_max_input_bytes // 2,
+                    selected=work.files,
                 ),
                 "previous_failure": claim["step"].get("result"),
             },
             PatchProposal,
         )
-        patch = self._checked_patch(proposal, work.files, archive)
+        patch = await run_blocking(self._checked_patch, proposal, work.files, archive)
         _, runner = await self._allocate(claim, "transform")
         workspace = await self._prepare(claim, runner, archive, recipe.to_payload())
         await self._commands(
@@ -444,7 +455,7 @@ class StageHandlers:
             workspace,
             recipe.to_payload(),
             key="transform_checkpoint",
-            expected_source=self._patched_archive(archive, patch),
+            expected_source=await run_blocking(self._patched_archive, archive, patch),
         )
         following = [
             s
@@ -467,7 +478,7 @@ class StageHandlers:
         inspected = self._required_result(claim["run"]["id"], "inspect")
         recipe = EnvironmentRecipe.model_validate(inspected["recipe"])
         checkpoint = self._last_checkpoint(claim)
-        archive = self._artifact_bytes(checkpoint)
+        archive = await run_blocking(self._artifact_bytes, checkpoint)
         final_digest = hashlib.sha256(archive).hexdigest()
         allocation, runner = await self._allocate(claim, "final_verification")
         workspace = await self._prepare(claim, runner, archive, recipe.to_payload())
@@ -478,7 +489,7 @@ class StageHandlers:
             claim, runner, workspace, recipe.recovery_checks, "final_recovery"
         )
         checks = await self._commands(claim, runner, workspace, recipe.tests, "final_regression")
-        assert_source_unchanged(archive, await runner.checkpoint(workspace))
+        await run_blocking(assert_source_unchanged, archive, await runner.checkpoint(workspace))
         evidence = {
             "vm_id": allocation.vm_id,
             "checkpoint_sha256": checkpoint["sha256"],
@@ -519,7 +530,7 @@ class StageHandlers:
         }
 
     async def _stage_package(self, claim: RunClaim) -> PackageResult:
-        result = self.packaging.build(claim)
+        result = await run_blocking(self.packaging.build, claim)
         self.engine.add_step(claim["run"]["id"], "ai_handoff", "ai_handoff", **self._fence(claim))
         return result
 
@@ -530,9 +541,10 @@ class StageHandlers:
             raise InputRequired(
                 "HELD_OUT_TASK_REQUIRED", {"final_digest": verified["final_digest"]}
             )
-        checks = [RecipeCommand.model_validate(c) for c in payload["checks"]]
-        archive = self._artifact_bytes(verified["checkpoint"])
-        source = self._source(claim)
+        decoded = HandoffInput.model_validate(payload)
+        checks = decoded.checks
+        archive = await run_blocking(self._artifact_bytes, verified["checkpoint"])
+        source = await run_blocking(self._source, claim)
         allowed = []
         with zipfile.ZipFile(io.BytesIO(archive)) as files:
             allowed = files.namelist()
@@ -542,21 +554,21 @@ class StageHandlers:
             "You are a new maintainer. Use only the delivered project and its project instructions to perform this held-out change. "
             "Return replacement file bytes as base64 using existing hashes. No prior transformation conversation or hidden checks are available.",
             {
-                "task": payload["task"],
-                "source": archive_context(
-                    archive, max_bytes=self.limits.model_max_input_bytes // 2
+                "task": decoded.task,
+                "source": await run_blocking(
+                    archive_context, archive, max_bytes=self.limits.model_max_input_bytes // 2
                 ),
-                "instructions": self._delivery_instructions(claim),
+                "instructions": await run_blocking(self._delivery_instructions, claim),
             },
             PatchProposal,
         )
         # New file paths can be explicitly allowed by the owner for this task.
-        for path in payload.get("allowed_new_files", []):
+        for path in decoded.allowed_new_files:
             safe_relative_path(path)
             if not any(path.startswith(r.path + "/") for r in source.repositories):
                 raise InputRequired("HELD_OUT_PATH_INVALID")
             allowed.append(path)
-        patch = self._checked_patch(proposal, allowed, archive)
+        patch = await run_blocking(self._checked_patch, proposal, allowed, archive)
         recipe = EnvironmentRecipe.model_validate(
             self._required_result(claim["run"]["id"], "inspect")["recipe"]
         )
@@ -577,15 +589,17 @@ class StageHandlers:
             claim, runner, workspace, recipe.tests, "handoff_regression"
         )
         acceptance = await self._commands(claim, runner, workspace, checks, "hidden_acceptance")
-        assert_source_unchanged(
-            self._patched_archive(archive, patch), await runner.checkpoint(workspace)
+        await run_blocking(
+            assert_source_unchanged,
+            await run_blocking(self._patched_archive, archive, patch),
+            await runner.checkpoint(workspace),
         )
         evidence = {
             "vm_id": allocation.vm_id,
             "checks": acceptance,
             "regression": regression,
             "request_id": stable_id(claim["attempt"]["id"], "model_independent_handoff"),
-            "task_digest": hashlib.sha256(payload["task"].encode()).hexdigest(),
+            "task_digest": hashlib.sha256(decoded.task.encode()).hexdigest(),
             "test_double": bool(runner.is_test or self.models.test_double),
         }
         self.engine.record_verification(

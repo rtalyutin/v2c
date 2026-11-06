@@ -6,6 +6,8 @@ import base64
 import hashlib
 import os
 import tempfile
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path, PurePosixPath
 from typing import Any
 
@@ -18,6 +20,15 @@ from .contracts.storage import (
 from .contracts.storage import (
     StorageError as StorageError,
 )
+
+
+@contextmanager
+def local_storage_errors(code: str) -> Iterator[None]:
+    """Translate OS details at the adapter boundary; paths never leave it."""
+    try:
+        yield
+    except OSError:
+        raise StorageError(code) from None
 
 
 def checked_key(key: str) -> str:
@@ -53,37 +64,40 @@ class LocalArtifactStore:
         return path
 
     def put_bytes(self, key: str, data: bytes) -> ArtifactRef:
-        ref = reference(key, data)
-        target = self._path(key)
-        target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-        fd, name = tempfile.mkstemp(dir=target.parent, prefix=".pending-")
-        try:
-            with os.fdopen(fd, "wb") as output:
-                output.write(data)
-                output.flush()
-                os.fsync(output.fileno())
+        with local_storage_errors("OBJECT_UPLOAD_FAILED"):
+            ref = reference(key, data)
+            target = self._path(key)
+            target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+            fd, name = tempfile.mkstemp(dir=target.parent, prefix=".pending-")
             try:
-                os.link(name, target)
-            except FileExistsError:
-                if target.read_bytes() != data:
-                    raise StorageError("IMMUTABLE_OBJECT_CONFLICT") from None
-            actual = self.get_bytes(key)
-            if hashlib.sha256(actual).hexdigest() != ref.sha256 or len(actual) != ref.size:
-                raise StorageError("OBJECT_CHECKSUM_MISMATCH")
-            directory = os.open(target.parent, os.O_RDONLY)
-            try:
-                os.fsync(directory)
+                with os.fdopen(fd, "wb") as output:
+                    output.write(data)
+                    output.flush()
+                    os.fsync(output.fileno())
+                try:
+                    os.link(name, target)
+                except FileExistsError:
+                    if target.read_bytes() != data:
+                        raise StorageError("IMMUTABLE_OBJECT_CONFLICT") from None
+                actual = self.get_bytes(key)
+                if hashlib.sha256(actual).hexdigest() != ref.sha256 or len(actual) != ref.size:
+                    raise StorageError("OBJECT_CHECKSUM_MISMATCH")
+                directory = os.open(target.parent, os.O_RDONLY)
+                try:
+                    os.fsync(directory)
+                finally:
+                    os.close(directory)
+                return ref
             finally:
-                os.close(directory)
-            return ref
-        finally:
-            Path(name).unlink(missing_ok=True)
+                Path(name).unlink(missing_ok=True)
 
     def get_bytes(self, key: str) -> bytes:
-        return self._path(key).read_bytes()
+        with local_storage_errors("OBJECT_READ_FAILED"):
+            return self._path(key).read_bytes()
 
     def exists(self, key: str) -> bool:
-        return self._path(key).is_file()
+        with local_storage_errors("OBJECT_READ_FAILED"):
+            return self._path(key).is_file()
 
 
 class S3ArtifactStore:

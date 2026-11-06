@@ -9,7 +9,10 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, JsonValue, StrictBool, StrictStr
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, StrictBool, StrictStr, field_validator
+
+from .commands import command_arguments, command_directory
+from .source import safe_relative_path
 
 JsonDocument = dict[str, JsonValue]
 
@@ -39,11 +42,28 @@ class AcceptanceCheck(Body):
     cwd: StrictStr = "."
     timeout_seconds: int = Field(default=120, ge=1, le=600)
 
+    @field_validator("argv")
+    @classmethod
+    def bounded_arguments(cls, values: list[str]) -> list[str]:
+        return command_arguments(values)
+
+    @field_validator("cwd")
+    @classmethod
+    def relative_directory(cls, value: str) -> str:
+        return command_directory(value)
+
 
 class Acceptance(Body):
     task: StrictStr = Field(min_length=1, max_length=20000)
     checks: list[AcceptanceCheck] = Field(min_length=1, max_length=20)
     allowed_new_files: list[StrictStr] = Field(default_factory=list, max_length=100)
+
+    @field_validator("allowed_new_files")
+    @classmethod
+    def relative_files(cls, values: list[str]) -> list[str]:
+        for value in values:
+            safe_relative_path(value)
+        return values
 
 
 class HumanHandoff(Body):

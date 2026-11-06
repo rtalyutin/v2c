@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import cast
 
+from pydantic import ValidationError
+
 from ..contracts.control import AttemptControl
 from ..contracts.model import AdapterError
 from ..contracts.ports import CleanupPort
@@ -12,6 +14,7 @@ from ..contracts.storage import StorageError
 from ..contracts.workflow import JsonObject, PendingExecution, RunClaim, RunRecord
 from ..delivery import DeliveryError
 from ..intake import IntakeError
+from ..workflow.errors import DomainError
 from .common import InputRequired, RunCancelled, StepFailure
 from .journal import OperationJournal
 from .registry import StageRegistry
@@ -29,14 +32,27 @@ class StageExecutor:
 
     async def execute(self, claim: RunClaim) -> RunRecord | PendingExecution:
         """Execute one leased step; waiting never means verified completion."""
+        kind = claim["step"]["kind"]
+        # A forged in-memory claim cannot change the persisted stage identity.
+        if (
+            kind not in self.registry.specs
+            and self.engine.get_step(claim["step"]["id"])["kind"] != kind
+        ):
+            raise DomainError("UNKNOWN_STEP_KIND")
         result = None
         failure: Exception | None = None
         try:
             self.journal.guard(claim)
-            handler = self.registry.admit(claim["step"]["kind"])
+            handler = self.registry.admit(kind)
             result = await handler(claim)
         except (InputRequired, StepFailure, RunCancelled, AdapterError, RunnerError) as error:
             failure = error
+        except ValidationError:
+            failure = InputRequired("INVALID_STAGE_INPUT")
+        except DomainError as error:
+            if error.code != "UNKNOWN_STEP_KIND":
+                raise
+            failure = InputRequired(error.code)
         except (IntakeError, DeliveryError, StorageError) as error:
             failure = InputRequired(str(error))
         finally:
@@ -64,6 +80,12 @@ class StageExecutor:
                 if c["status"] not in {"SUCCEEDED", "FAILED", "CANCELLED", "STOPPED"}
             ]
             if unresolved:
+                self.engine.note_pending(
+                    claim["attempt"]["id"],
+                    claim["attempt"]["generation"],
+                    failure.reason,
+                    failure.details,
+                )
                 return {
                     "status": "RUNNING",
                     "reason": failure.reason,
